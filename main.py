@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
+import numpy as np
 import random
 from sklearn.ensemble import RandomForestRegressor
 
@@ -58,8 +59,8 @@ y = df[target_cols]
 
 # Huấn luyện mô hình Random Forest Regressor để dự đoán nhu cầu dinh dưỡng cho người có bệnh lý
 model = RandomForestRegressor(
-    n_estimators=200,
-    max_depth=10,
+    n_estimators=120,
+    max_depth=8,
     random_state=42
 )
 
@@ -120,72 +121,68 @@ for col in ["calories","protein","fat","carbs"]:
 df_food = df_food.dropna().reset_index(drop=True)
 
 print("Food items loaded:", len(df_food))
+food_array = df_food[["calories","protein","carbs","fat"]].values
+food_stt = df_food["stt"].values
+food_names = df_food["name_vi"].values
 
 # Hàm gợi ý món ăn cho từng bữa dựa trên phần còn thiếu của nhu cầu dinh dưỡng và các món đã dùng trong ngày (nếu có)
 
-def recommend_meal(
-    target,
-    is_disease_user=False,
-    used_stt=None,
-    max_items=5
-):
+def recommend_meal(target, is_disease_user=False, used_stt=None, max_items=5):
+
+    remain = np.array([
+        target["Calories"],
+        target["Protein"],
+        target["Carbs"],
+        target["Fat"]
+    ])
+
     selected = []
-    remain = target.copy()
+    used = set(used_stt or [])
 
-    # Loại bỏ các món đã dùng trong ngày
-    if used_stt:
-        foods = df_food[~df_food["stt"].isin(used_stt)].copy()
-    else:
-        foods = df_food.copy()
-    # Tính điểm cho từng món dựa trên độ lệch so với phần còn thiếu của nhu cầu dinh dưỡng
-    def score(food):
+    for _ in range(max_items):
 
-        s = abs(food.calories - remain["Calories"]) / max(target["Calories"],1)
+        mask = ~np.isin(food_stt, list(used))
+
+        foods = food_array[mask]
+        stts = food_stt[mask]
+
+        if len(foods) == 0:
+            break
+
+        diff = np.abs(foods - remain)
 
         if not is_disease_user:
-            s += 0.5 * abs(food.carbs - remain["Carbs"]) / max(target["Carbs"],1)
-            s += 0.3 * abs(food.fat - remain["Fat"]) / max(target["Fat"],1)
-            s += 0.2 * abs(food.protein - remain["Protein"]) / max(target["Protein"],1)
+            score = (
+                diff[:,0] / max(target["Calories"],1) +
+                0.5 * diff[:,2] / max(target["Carbs"],1) +
+                0.3 * diff[:,3] / max(target["Fat"],1) +
+                0.2 * diff[:,1] / max(target["Protein"],1)
+            )
         else:
-            s += 1.2 * abs(food.carbs - remain["Carbs"]) / max(target["Carbs"],1)
-            s += 1 * abs(food.fat - remain["Fat"]) / max(target["Fat"],1)
-            s += 1.5 * abs(food.protein - remain["Protein"]) / max(target["Protein"],1)
+            score = (
+                diff[:,0] / max(target["Calories"],1) +
+                1.2 * diff[:,2] / max(target["Carbs"],1) +
+                1.0 * diff[:,3] / max(target["Fat"],1) +
+                1.5 * diff[:,1] / max(target["Protein"],1)
+            )
 
-        return s
-    # Lặp chọn món ăn cho đến khi đạt đủ nhu cầu hoặc hết món
-    while (
-        remain["Calories"] > target["Calories"] * 0.1
-        and len(selected) < max_items
-        and not foods.empty
-    ):
+        idx = np.argmin(score)
 
-        foods["score"] = foods.apply(score, axis=1)
-
-        top_k = foods.sort_values("score").head(8)
-
-        weights = 1 / (top_k["score"] + 1e-6)
-        weights /= weights.sum()
-
-        best = top_k.sample(1, weights=weights).iloc[0]
+        best = foods[idx]
+        stt = int(stts[idx])
 
         selected.append({
-            "stt": int(best.stt),
-            "name": best.name_vi,
-            "calories": float(best.calories)
+            "stt": stt,
+            "calories": float(best[0])
         })
 
-        if used_stt is not None:
-            used_stt.add(int(best.stt))
+        used.add(stt)
 
-        remain["Calories"] -= best.calories
-        remain["Protein"] -= best.protein
-        remain["Carbs"] -= best.carbs
-        remain["Fat"] -= best.fat
+        remain -= best
+        remain = np.maximum(remain, 0)
 
-        foods = foods.drop(best.name)
-
-        for k in remain:
-            remain[k] = max(remain[k], 0)
+        if remain[0] < target["Calories"] * 0.1:
+            break
 
     return selected
 
@@ -307,7 +304,7 @@ def calculate_nutrition(user: UserRequest):
 
 # Endpoint để nhận thông tin người dùng và trả về nhu cầu dinh dưỡng cùng gợi ý món ăn hàng ngày
 @app.post("/recommend")
-def recommend(user: UserRequest):
+async def recommend(user: UserRequest):
 
     nutrition, is_disease = calculate_nutrition(user)
 
