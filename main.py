@@ -5,9 +5,7 @@ import pandas as pd
 import random
 from sklearn.ensemble import RandomForestRegressor
 
-# =========================================
-# 1. LOAD & TRAIN MODEL
-# =========================================
+# 1.Load and tiền xử lý nutrition dataset
 
 print("Loading nutrition dataset...")
 
@@ -27,7 +25,7 @@ df = df.rename(columns={
     "Fat": "fat"
 })
 
-# Remove text columns
+# Xóa các cột không cần thiết
 for col in [
     "Breakfast Suggestion",
     "Lunch Suggestion",
@@ -36,7 +34,7 @@ for col in [
 ]:
     if col in df.columns:
         df.drop(columns=col, inplace=True)
-
+# Chuyển đổi kiểu dữ liệu và mã hóa các biến phân loại
 df["gender"] = df["gender"].map({"Male":1,"Female":0})
 
 activity_map = {
@@ -47,6 +45,7 @@ activity_map = {
 }
 df["activity"] = df["activity"].map(activity_map)
 
+# One-hot encoding cho các cột disease và diet
 df = pd.get_dummies(df, columns=["disease","diet"])
 
 target_cols = ["calories","protein","carbs","fat"]
@@ -57,6 +56,7 @@ df = df.dropna().reset_index(drop=True)
 X = df[feature_cols]
 y = df[target_cols]
 
+# Huấn luyện mô hình Random Forest Regressor để dự đoán nhu cầu dinh dưỡng cho người có bệnh lý
 model = RandomForestRegressor(
     n_estimators=200,
     max_depth=10,
@@ -67,9 +67,7 @@ model.fit(X, y)
 
 print("Model trained successfully!")
 
-# =========================================
-# 2. WHO TDEE
-# =========================================
+# Tính TDEE theo công thức của WHO nếu không có bệnh lý
 
 def who_tdee(age, gender, height, weight, activity):
 
@@ -85,11 +83,11 @@ def who_tdee(age, gender, height, weight, activity):
         "Very Active": 1.725,
         "Extremely Active": 1.9
     }
-
+     # TDEE = BMR * Activity Factor
     tdee = bmr * activity_factor.get(activity, 1.2)
 
     protein_pct = random.uniform(0.12, 0.15)
-    fat_pct = random.uniform(0.20, 0.30)
+    fat_pct = random.uniform(0.15, 0.30)
     carb_pct = 1 - protein_pct - fat_pct
 
     return {
@@ -99,9 +97,7 @@ def who_tdee(age, gender, height, weight, activity):
         "Fat": round((tdee*fat_pct)/9,1)
     }
 
-# =========================================
-# 3. LOAD FOOD DATA
-# =========================================
+# Load and tiền xử lý food dataset
 
 print("Loading food dataset...")
 
@@ -125,9 +121,7 @@ df_food = df_food.dropna().reset_index(drop=True)
 
 print("Food items loaded:", len(df_food))
 
-# =========================================
-# 4. RECOMMEND LOGIC (NO DUPLICATE + WEIGHTED)
-# =========================================
+# Hàm gợi ý món ăn cho từng bữa dựa trên phần còn thiếu của nhu cầu dinh dưỡng và các món đã dùng trong ngày (nếu có)
 
 def recommend_meal(
     target,
@@ -138,27 +132,27 @@ def recommend_meal(
     selected = []
     remain = target.copy()
 
-    # Remove used foods (no duplicate in whole day)
+    # Loại bỏ các món đã dùng trong ngày
     if used_stt:
         foods = df_food[~df_food["stt"].isin(used_stt)].copy()
     else:
         foods = df_food.copy()
-
+    # Tính điểm cho từng món dựa trên độ lệch so với phần còn thiếu của nhu cầu dinh dưỡng
     def score(food):
 
         s = abs(food.calories - remain["Calories"]) / max(target["Calories"],1)
 
         if not is_disease_user:
-            s += 1.5 * abs(food.carbs - remain["Carbs"]) / max(target["Carbs"],1)
-            s += 0.6 * abs(food.fat - remain["Fat"]) / max(target["Fat"],1)
-            s += 0.3 * abs(food.protein - remain["Protein"]) / max(target["Protein"],1)
+            s += 0.5 * abs(food.carbs - remain["Carbs"]) / max(target["Carbs"],1)
+            s += 0.3 * abs(food.fat - remain["Fat"]) / max(target["Fat"],1)
+            s += 0.2 * abs(food.protein - remain["Protein"]) / max(target["Protein"],1)
         else:
             s += 1.2 * abs(food.carbs - remain["Carbs"]) / max(target["Carbs"],1)
-            s += 1.2 * abs(food.fat - remain["Fat"]) / max(target["Fat"],1)
-            s += 2.5 * abs(food.protein - remain["Protein"]) / max(target["Protein"],1)
+            s += 1 * abs(food.fat - remain["Fat"]) / max(target["Fat"],1)
+            s += 1.5 * abs(food.protein - remain["Protein"]) / max(target["Protein"],1)
 
         return s
-
+    # Lặp chọn món ăn cho đến khi đạt đủ nhu cầu hoặc hết món
     while (
         remain["Calories"] > target["Calories"] * 0.1
         and len(selected) < max_items
@@ -195,7 +189,7 @@ def recommend_meal(
 
     return selected
 
-
+# Lập kế hoạch ăn uống hàng ngày dựa trên nhu cầu dinh dưỡng và các món đã ăn trong ngày (nếu có)
 def daily_plan(nutrition, is_disease_user=False, eaten_cal=None):
 
     ratios = {"Breakfast":0.3, "Lunch":0.4, "Dinner":0.3}
@@ -228,9 +222,7 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None):
 
     return meals
 
-# =========================================
-# 5. FASTAPI
-# =========================================
+# Khởi tạo FastAPI và cấu hình CORS
 
 app = FastAPI()
 
@@ -253,11 +245,13 @@ class UserRequest(BaseModel):
     lunch_cal: float = 0
     dinner_cal: float = 0
 
+# Hàm chuyển đổi giới tính 
 def convert_gender(gender):
     if gender.lower() in ["nam","male"]:
         return "male"
     return "female"
 
+# Hàm chuyển đổi mức độ vận động
 def convert_activity(activity):
     mapping = {
         "ít vận động": "Sedentary",
@@ -267,12 +261,13 @@ def convert_activity(activity):
     }
     return mapping.get(activity.lower(), "Sedentary")
 
-@app.post("/recommend")
-def recommend(user: UserRequest):
+# Hàm tính nhu cầu dinh dưỡng (TDEE) dựa trên thông tin người dùng 
+def calculate_nutrition(user: UserRequest):
 
     gender_en = convert_gender(user.gender)
     activity_en = convert_activity(user.activity)
 
+    # Nếu không có bệnh dùng WHO
     if not user.disease or user.disease == "None":
 
         nutrition = who_tdee(
@@ -282,15 +277,19 @@ def recommend(user: UserRequest):
             user.weight,
             activity_en
         )
+
         is_disease = False
 
+    # Nếu có bệnh dùng mô hình dự đoán
     else:
+        activity_encoded = activity_map.get(activity_en,0)
+
         X_user = pd.DataFrame([{
             "age": user.age,
             "gender": 1 if gender_en == "male" else 0,
             "height": user.height,
             "weight": user.weight,
-            "activity": 1
+            "activity": activity_encoded
         }]).reindex(columns=X.columns, fill_value=0)
 
         pred = model.predict(X_user)[0]
@@ -301,9 +300,17 @@ def recommend(user: UserRequest):
             "Carbs": round(pred[2],1),
             "Fat": round(pred[3],1)
         }
+
         is_disease = True
 
-    # 🔥 Calo đã ăn từ app
+    return nutrition, is_disease
+
+# Endpoint để nhận thông tin người dùng và trả về nhu cầu dinh dưỡng cùng gợi ý món ăn hàng ngày
+@app.post("/recommend")
+def recommend(user: UserRequest):
+
+    nutrition, is_disease = calculate_nutrition(user)
+
     eaten_cal = {
         "Breakfast": user.breakfast_cal,
         "Lunch": user.lunch_cal,
@@ -316,36 +323,10 @@ def recommend(user: UserRequest):
         "nutrition": nutrition,
         "menu": meals
     }
+# Endpoint để chỉ trả về nhu cầu dinh dưỡng (TDEE) 
 @app.post("/tdee")
 def calculate_tdee_api(user: UserRequest):
 
-    gender_en = convert_gender(user.gender)
-    activity_en = convert_activity(user.activity)
-
-    if not user.disease or user.disease == "None":
-        nutrition = who_tdee(
-            user.age,
-            gender_en,
-            user.height,
-            user.weight,
-            activity_en
-        )
-    else:
-        X_user = pd.DataFrame([{
-            "age": user.age,
-            "gender": 1 if gender_en == "male" else 0,
-            "height": user.height,
-            "weight": user.weight,
-            "activity": 1
-        }]).reindex(columns=X.columns, fill_value=0)
-
-        pred = model.predict(X_user)[0]
-
-        nutrition = {
-            "Calories": round(pred[0],1),
-            "Protein": round(pred[1],1),
-            "Carbs": round(pred[2],1),
-            "Fat": round(pred[3],1)
-        }
+    nutrition, _ = calculate_nutrition(user)
 
     return nutrition
