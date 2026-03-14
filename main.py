@@ -1,3 +1,5 @@
+from unittest import result
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -216,6 +218,8 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None):
             is_disease_user=is_disease_user,
             used_stt=used_stt
         )
+        for item in meals[meal]:
+            used_stt.add(item["stt"])
 
     return meals
 
