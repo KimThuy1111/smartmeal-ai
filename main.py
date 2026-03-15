@@ -195,6 +195,23 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None):
     ratios = {"Breakfast":0.3, "Lunch":0.4, "Dinner":0.3}
     meals = {}
     used_stt = set()
+    
+    # Tính tổng cal đã ăn trong ngày
+    total_eaten = 0
+    if eaten_cal:
+        total_eaten = (
+            eaten_cal.get("Breakfast",0) +
+            eaten_cal.get("Lunch",0) +
+            eaten_cal.get("Dinner",0)
+        )
+
+    # nếu tổng đã đủ hoặc vượt → không gợi ý nữa
+    if total_eaten >= nutrition["Calories"]:
+        return {
+            "Breakfast": [],
+            "Lunch": [],
+            "Dinner": []
+        }
 
     for meal, r in ratios.items():
 
