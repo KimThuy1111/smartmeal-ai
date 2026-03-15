@@ -24,7 +24,7 @@ df = df.rename(columns={
     "Disease": "disease",
     "Calories": "calories",
     "Protein": "protein",
-    "Carbohydrates": "carbs",
+    "Carbohydrates": "carb",
     "Fat": "fat"
 })
 
@@ -51,7 +51,7 @@ df["activity"] = df["activity"].map(activity_map)
 # One-hot encoding cho các cột disease và diet
 df = pd.get_dummies(df, columns=["disease","diet"])
 
-target_cols = ["calories","protein","carbs","fat"]
+target_cols = ["calories","protein","carb","fat"]
 feature_cols = [c for c in df.columns if c not in target_cols]
 
 df = df.dropna().reset_index(drop=True)
@@ -97,7 +97,7 @@ def who_tdee(age, gender, height, weight, activity):
     return {
         "Calories": round(tdee,1),
         "Protein": round((tdee*protein_pct)/4,1),
-        "Carbs": round((tdee*carb_pct)/4,1),
+        "carb": round((tdee*carb_pct)/4,1),
         "Fat": round((tdee*fat_pct)/9,1)
     }
 
@@ -113,18 +113,18 @@ df_food = df_food.rename(columns={
     "Calories":"calories",
     "Chất đạm":"protein",
     "Chất béo":"fat",
-    "Carbohydrate":"carbs"
+    "Carbohydrate":"carb"
 })
 
-df_food = df_food[["stt","name_vi","calories","protein","fat","carbs"]]
+df_food = df_food[["stt","name_vi","calories","protein","fat","carb"]]
 
-for col in ["calories","protein","fat","carbs"]:
+for col in ["calories","protein","fat","carb"]:
     df_food[col] = pd.to_numeric(df_food[col], errors="coerce")
 
 df_food = df_food.dropna().reset_index(drop=True)
 
 print("Food items loaded:", len(df_food))
-food_array = df_food[["calories","protein","carbs","fat"]].values
+food_array = df_food[["calories","protein","carb","fat"]].values
 food_stt = df_food["stt"].values
 food_names = df_food["name_vi"].values
 
@@ -135,7 +135,7 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, max_items=5):
     remain = np.array([
         target["Calories"],
         target["Protein"],
-        target["Carbs"],
+        target["carb"],
         target["Fat"]
     ])
 
@@ -157,14 +157,14 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, max_items=5):
         if not is_disease_user:
             score = (
                 diff[:,0] / max(target["Calories"],1) +
-                0.5 * diff[:,2] / max(target["Carbs"],1) +
+                0.5 * diff[:,2] / max(target["carb"],1) +
                 0.3 * diff[:,3] / max(target["Fat"],1) +
                 0.2 * diff[:,1] / max(target["Protein"],1)
             )
         else:
             score = (
                 diff[:,0] / max(target["Calories"],1) +
-                1.2 * diff[:,2] / max(target["Carbs"],1) +
+                1.2 * diff[:,2] / max(target["carb"],1) +
                 1.0 * diff[:,3] / max(target["Fat"],1) +
                 1.5 * diff[:,1] / max(target["Protein"],1)
             )
@@ -213,7 +213,7 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None):
             target={
                 "Calories": nutrition["Calories"] * r * remain_ratio,
                 "Protein": nutrition["Protein"] * r * remain_ratio,
-                "Carbs": nutrition["Carbs"] * r * remain_ratio,
+                "carb": nutrition["carb"] * r * remain_ratio,
                 "Fat": nutrition["Fat"] * r * remain_ratio
             },
             is_disease_user=is_disease_user,
@@ -299,7 +299,7 @@ def calculate_nutrition(user: UserRequest):
         nutrition = {
             "Calories": round(pred[0],1),
             "Protein": round(pred[1],1),
-            "Carbs": round(pred[2],1),
+            "carb": round(pred[2],1),
             "Fat": round(pred[3],1)
         }
 
