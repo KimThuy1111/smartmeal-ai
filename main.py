@@ -61,9 +61,10 @@ y = df[target_cols]
 
 # Huấn luyện mô hình Random Forest Regressor để dự đoán nhu cầu dinh dưỡng cho người có bệnh lý
 model = RandomForestRegressor(
-    n_estimators=120,
+    n_estimators=50,
     max_depth=8,
     random_state=42
+    n_jobs=-1
 )
 
 model.fit(X, y)
