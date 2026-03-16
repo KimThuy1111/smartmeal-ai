@@ -13,7 +13,7 @@ from sklearn.ensemble import RandomForestRegressor
 print("Loading nutrition dataset...")
 
 df = pd.read_csv("nutrition.csv")
-
+# Đổi tên cột 
 df = df.rename(columns={
     "Ages": "age",
     "Gender": "gender",
@@ -37,7 +37,7 @@ for col in [
 ]:
     if col in df.columns:
         df.drop(columns=col, inplace=True)
-# Chuyển đổi kiểu dữ liệu và mã hóa các biến phân loại
+# Mã hóa dữ liệu (encoding) 
 df["gender"] = df["gender"].map({"Male":1,"Female":0})
 
 activity_map = {
@@ -50,7 +50,7 @@ df["activity"] = df["activity"].map(activity_map)
 
 # One-hot encoding cho các cột disease và diet
 df = pd.get_dummies(df, columns=["disease","diet"])
-
+# Chia cột target và feature
 target_cols = ["calories","protein","carb","fat"]
 feature_cols = [c for c in df.columns if c not in target_cols]
 
@@ -128,9 +128,31 @@ food_array = df_food[["calories","protein","carb","fat"]].values
 food_stt = df_food["stt"].values
 food_names = df_food["name_vi"].values
 
-# Hàm gợi ý món ăn cho từng bữa dựa trên phần còn thiếu của nhu cầu dinh dưỡng và các món đã dùng trong ngày (nếu có)
+# =============================
+# TẠO MAP MÓN TƯƠNG TỰ
+# =============================
 
-def recommend_meal(target, is_disease_user=False, used_stt=None, max_items=5):
+food_name_map = dict(zip(food_stt, food_names))
+
+def is_similar_food(stt, recent_foods):
+
+    if not recent_foods:
+        return False
+
+    name = food_name_map.get(stt, "").lower()
+
+    for r in recent_foods:
+
+        rname = food_name_map.get(r, "").lower()
+
+        # ví dụ: bún bò ~ bún riêu
+        if rname.split()[0] in name:
+            return True
+
+    return False
+
+# Hàm gợi ý món ăn cho từng bữa dựa trên phần còn thiếu của nhu cầu dinh dưỡng và các món đã dùng trong ngày (nếu có)
+def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=None, max_items=5):
 
     remain = np.array([
         target["Calories"],
@@ -154,20 +176,36 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, max_items=5):
 
         diff = np.abs(foods - remain)
 
+        # =================================
+        # BONUS THEO SỞ THÍCH USER
+        # =================================
+
+        bonus = np.zeros(len(stts))
+
+        if recent_foods:
+
+            for i, stt in enumerate(stts):
+
+                if stt in recent_foods:
+                    bonus[i] -= 0.2   # món đã ăn
+
+                elif is_similar_food(stt, recent_foods):
+                    bonus[i] -= 0.15  # món tương tự
+
         if not is_disease_user:
             score = (
                 diff[:,0] / max(target["Calories"],1) +
                 0.5 * diff[:,2] / max(target["carb"],1) +
                 0.3 * diff[:,3] / max(target["Fat"],1) +
                 0.2 * diff[:,1] / max(target["Protein"],1)
-            )
+            ) + bonus
         else:
             score = (
                 diff[:,0] / max(target["Calories"],1) +
                 1.2 * diff[:,2] / max(target["carb"],1) +
                 1.0 * diff[:,3] / max(target["Fat"],1) +
                 1.5 * diff[:,1] / max(target["Protein"],1)
-            )
+            ) + bonus
 
         idx = np.argmin(score)
 
@@ -190,7 +228,7 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, max_items=5):
     return selected
 
 # Lập kế hoạch ăn uống hàng ngày dựa trên nhu cầu dinh dưỡng và các món đã ăn trong ngày (nếu có)
-def daily_plan(nutrition, is_disease_user=False, eaten_cal=None):
+def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=None):
 
     ratios = {"Breakfast":0.3, "Lunch":0.4, "Dinner":0.3}
     meals = {}
@@ -234,7 +272,8 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None):
                 "Fat": nutrition["Fat"] * r * remain_ratio
             },
             is_disease_user=is_disease_user,
-            used_stt=used_stt
+            used_stt=used_stt,
+            recent_foods=recent_foods
         )
         for item in meals[meal]:
             used_stt.add(item["stt"])
@@ -263,6 +302,7 @@ class UserRequest(BaseModel):
     breakfast_cal: float = 0
     lunch_cal: float = 0
     dinner_cal: float = 0
+    recent_foods: list[int] | None = None
 
 # Hàm chuyển đổi giới tính 
 def convert_gender(gender):
@@ -336,7 +376,7 @@ async def recommend(user: UserRequest):
         "Dinner": user.dinner_cal
     }
 
-    meals = daily_plan(nutrition, is_disease, eaten_cal)
+    meals = daily_plan(nutrition, is_disease, eaten_cal, user.recent_foods)
 
     return {
         "nutrition": nutrition,
