@@ -113,10 +113,13 @@ df_food = df_food.rename(columns={
     "Calories":"calories",
     "Chất đạm":"protein",
     "Chất béo":"fat",
-    "Carbohydrate":"carb"
+    "Carbohydrate":"carb",
+    "Category":"category"
 })
 
-df_food = df_food[["stt","name_vi","calories","protein","fat","carb"]]
+df_food = df_food[["stt","name_vi","calories","protein","fat","carb","category"]]
+
+food_category_map = dict(zip(df_food["stt"], df_food["category"]))
 
 for col in ["calories","protein","fat","carb"]:
     df_food[col] = pd.to_numeric(df_food[col], errors="coerce")
@@ -182,6 +185,16 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
 
         bonus = np.zeros(len(stts))
 
+        # 🎯 BONUS theo nhóm
+        if recent_foods:
+            recent_categories = [food_category_map.get(r) for r in recent_foods]
+
+            for i, stt in enumerate(stts):
+                cat = food_category_map.get(stt)
+
+                if cat in recent_categories:
+                    bonus[i] -= 0.25   # 👈 ưu tiên cùng nhóm
+
         if recent_foods:
 
             for i, stt in enumerate(stts):
@@ -233,8 +246,10 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=No
     ratios = {"Breakfast":0.3, "Lunch":0.4, "Dinner":0.3}
     meals = {}
     used_stt = set()
-    
-    # Tính tổng cal đã ăn trong ngày
+
+    # =========================
+    # 1. CHECK CALO
+    # =========================
     total_eaten = 0
     if eaten_cal:
         total_eaten = (
@@ -243,7 +258,6 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=No
             eaten_cal.get("Dinner",0)
         )
 
-    # nếu tổng đã đủ hoặc vượt → không gợi ý nữa
     if total_eaten >= nutrition["Calories"]:
         return {
             "Breakfast": [],
@@ -251,17 +265,18 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=No
             "Dinner": []
         }
 
+    # =========================
+    # 2. BUILD MENU
+    # =========================
     for meal, r in ratios.items():
 
         target_cal = nutrition["Calories"] * r
         eaten = eaten_cal.get(meal, 0) if eaten_cal else 0
 
-        # Nếu đã ăn đủ
         if eaten >= target_cal:
             meals[meal] = []
             continue
 
-        # Phần còn thiếu
         remain_ratio = max((target_cal - eaten) / target_cal, 0)
 
         meals[meal] = recommend_meal(
@@ -275,8 +290,52 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=No
             used_stt=used_stt,
             recent_foods=recent_foods
         )
+
         for item in meals[meal]:
             used_stt.add(item["stt"])
+
+    # =========================
+    # 3. FIX BỮA TRƯA
+    # =========================
+    lunch = meals.get("Lunch", [])
+
+    has_required = False
+    for item in lunch:
+        cat = food_category_map.get(item["stt"])
+        if cat in ["Tinh bột", "Món nước"]:
+            has_required = True
+            break
+
+    if not has_required:
+        for stt in food_stt:
+            cat = food_category_map.get(stt)
+            if cat in ["Tinh bột", "Món nước"]:
+                meals["Lunch"].append({
+                    "stt": int(stt),
+                    "calories": float(food_array[list(food_stt).index(stt)][0])
+                })
+                break
+
+    # =========================
+    # 4. FIX SÁNG ≠ TỐI
+    # =========================
+    breakfast = meals.get("Breakfast", [])
+    dinner = meals.get("Dinner", [])
+
+    breakfast_cats = [food_category_map.get(i["stt"]) for i in breakfast]
+
+    for d in dinner:
+        cat = food_category_map.get(d["stt"])
+
+        if cat in breakfast_cats and cat != "Khác":
+
+            for stt in food_stt:
+                new_cat = food_category_map.get(stt)
+
+                if new_cat != cat:
+                    d["stt"] = int(stt)
+                    d["calories"] = float(food_array[list(food_stt).index(stt)][0])
+                    break
 
     return meals
 
