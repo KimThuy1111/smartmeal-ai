@@ -144,18 +144,32 @@ def is_similar_food(stt, recent_foods):
 
     name = food_name_map.get(stt, "").lower()
 
+    if not name:   # 🔥 FIX
+        return False
+
     for r in recent_foods:
 
         rname = food_name_map.get(r, "").lower()
 
-        # ví dụ: bún bò ~ bún riêu
-        if rname.split()[0] in name:
+        # 🔥 FIX: tránh crash
+        if not rname:
+            continue
+
+        words = rname.split()
+        if len(words) == 0:
+            continue
+
+        if words[0] in name:
             return True
 
     return False
 
 # Hàm gợi ý món ăn cho từng bữa dựa trên phần còn thiếu của nhu cầu dinh dưỡng và các món đã dùng trong ngày (nếu có)
-def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=None, max_items=5):
+# =============================
+# RECOMMEND MEAL (FIXED)
+# =============================
+
+def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=None, excluded_foods=None, max_items=2):
 
     remain = np.array([
         target["Calories"],
@@ -166,6 +180,10 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
 
     selected = []
     used = set(used_stt or [])
+    # 🔥 FIX: loại luôn món đã gợi ý trước đó
+    if excluded_foods:
+        used.update(excluded_foods)
+    total_cal = 0   # FIX: kiểm soát tổng calo bữa
 
     for _ in range(max_items):
 
@@ -173,6 +191,16 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
 
         foods = food_array[mask]
         stts = food_stt[mask]
+
+        if len(foods) == 0:
+            break
+
+        # =========================
+        # FIX: CHẶN MÓN VƯỢT CALO
+        # =========================
+        valid_mask = foods[:,0] <= remain[0] * 0.8
+        foods = foods[valid_mask]
+        stts = stts[valid_mask]
 
         if len(foods) == 0:
             break
@@ -185,25 +213,29 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
 
         bonus = np.zeros(len(stts))
 
-        # 🎯 BONUS theo nhóm
+        # =========================
+        # BONUS sở thích
+        # =========================
         if recent_foods:
             recent_categories = [food_category_map.get(r) for r in recent_foods]
 
             for i, stt in enumerate(stts):
-                cat = food_category_map.get(stt)
-
-                if cat in recent_categories:
-                    bonus[i] -= 0.25   # 👈 ưu tiên cùng nhóm
+                if food_category_map.get(stt) in recent_categories:
+                    bonus[i] -= 0.3
 
         if recent_foods:
 
             for i, stt in enumerate(stts):
 
                 if stt in recent_foods:
-                    bonus[i] -= 0.2   # món đã ăn
-
+                    bonus[i] -= 0.25
                 elif is_similar_food(stt, recent_foods):
-                    bonus[i] -= 0.15  # món tương tự
+                    bonus[i] -= 0.2
+
+        # =========================
+        # RANDOM nhẹ (giữ logic bạn)
+        # =========================
+        noise = np.random.uniform(0, 0.1, len(stts))  # FIX: random
 
         if not is_disease_user:
             score = (
@@ -211,19 +243,25 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
                 0.5 * diff[:,2] / max(target["carb"],1) +
                 0.3 * diff[:,3] / max(target["Fat"],1) +
                 0.2 * diff[:,1] / max(target["Protein"],1)
-            ) + bonus
+            ) + bonus + noise
         else:
             score = (
                 diff[:,0] / max(target["Calories"],1) +
                 1.2 * diff[:,2] / max(target["carb"],1) +
                 1.0 * diff[:,3] / max(target["Fat"],1) +
                 1.5 * diff[:,1] / max(target["Protein"],1)
-            ) + bonus
+            ) + bonus + noise
 
         idx = np.argmin(score)
 
         best = foods[idx]
         stt = int(stts[idx])
+
+        # =========================
+        # FIX: KHÔNG VƯỢT TỔNG BỮA
+        # =========================
+        if total_cal + best[0] > target["Calories"] * 1.05:
+            break
 
         selected.append({
             "stt": stt,
@@ -231,17 +269,19 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
         })
 
         used.add(stt)
+        total_cal += best[0]
 
         remain -= best
         remain = np.maximum(remain, 0)
 
-        if remain[0] < target["Calories"] * 0.1:
+        if total_cal >= target["Calories"] * 0.95:
             break
 
     return selected
 
+
 # Lập kế hoạch ăn uống hàng ngày dựa trên nhu cầu dinh dưỡng và các món đã ăn trong ngày (nếu có)
-def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=None):
+def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=None, excluded_foods=None):
 
     ratios = {"Breakfast":0.3, "Lunch":0.4, "Dinner":0.3}
     meals = {}
@@ -288,7 +328,8 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=No
             },
             is_disease_user=is_disease_user,
             used_stt=used_stt,
-            recent_foods=recent_foods
+            recent_foods=recent_foods,
+            excluded_foods=excluded_foods
         )
 
         for item in meals[meal]:
@@ -299,44 +340,57 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=No
     # =========================
     lunch = meals.get("Lunch", [])
 
-    has_required = False
-    for item in lunch:
-        cat = food_category_map.get(item["stt"])
-        if cat in ["Tinh bột", "Món nước"]:
-            has_required = True
-            break
+    target_lunch_cal = nutrition["Calories"] * 0.4
+    current_lunch_cal = sum(i["calories"] for i in lunch)
 
-    if not has_required:
+    # =========================
+    # 1. ĐẢM BẢO CÓ TINH BỘT / MÓN NƯỚC
+    # =========================
+    has_main = any(
+        food_category_map.get(i["stt"]) in ["Tinh bột", "Món nước"]
+        for i in lunch
+    )
+
+
+    if not has_main:
         for stt in food_stt:
             cat = food_category_map.get(stt)
+
             if cat in ["Tinh bột", "Món nước"]:
-                meals["Lunch"].append({
-                    "stt": int(stt),
-                    "calories": float(food_array[list(food_stt).index(stt)][0])
-                })
+                cal = float(food_array[list(food_stt).index(stt)][0])
+
+                # 🔥 không vượt calo
+                if current_lunch_cal + cal <= target_lunch_cal * 1.05:
+                    lunch.append({
+                        "stt": int(stt),
+                        "calories": cal
+                    })
+                    current_lunch_cal += cal
                 break
 
     # =========================
-    # 4. FIX SÁNG ≠ TỐI
+    # 2. NẾU THIẾU CALO → THÊM GIẢI KHÁT
     # =========================
-    breakfast = meals.get("Breakfast", [])
-    dinner = meals.get("Dinner", [])
+    if current_lunch_cal < target_lunch_cal * 0.9:
 
-    breakfast_cats = [food_category_map.get(i["stt"]) for i in breakfast]
+        remain = target_lunch_cal - current_lunch_cal
 
-    for d in dinner:
-        cat = food_category_map.get(d["stt"])
+        for stt in food_stt:
+            cat = food_category_map.get(stt)
 
-        if cat in breakfast_cats and cat != "Khác":
+            if cat == "Giải khát":
+                cal = float(food_array[list(food_stt).index(stt)][0])
 
-            for stt in food_stt:
-                new_cat = food_category_map.get(stt)
-
-                if new_cat != cat:
-                    d["stt"] = int(stt)
-                    d["calories"] = float(food_array[list(food_stt).index(stt)][0])
+                # 🔥 chọn món gần với phần thiếu
+                if cal <= remain * 1.1:
+                    lunch.append({
+                        "stt": int(stt),
+                        "calories": cal
+                    })
                     break
 
+    # cập nhật lại meals
+    meals["Lunch"] = lunch
     return meals
 
 # Khởi tạo FastAPI và cấu hình CORS
@@ -362,6 +416,8 @@ class UserRequest(BaseModel):
     lunch_cal: float = 0
     dinner_cal: float = 0
     recent_foods: list[int] | None = None
+    # 🔥 NEW: món đã gợi ý trong ngày
+    excluded_foods: list[int] | None = None
 
 # Hàm chuyển đổi giới tính 
 def convert_gender(gender):
@@ -426,6 +482,9 @@ def calculate_nutrition(user: UserRequest):
 # Endpoint để nhận thông tin người dùng và trả về nhu cầu dinh dưỡng cùng gợi ý món ăn hàng ngày
 @app.post("/recommend")
 async def recommend(user: UserRequest):
+    print("==== RECOMMEND API CALLED ====")
+    print("Input:", user.dict())
+
 
     nutrition, is_disease = calculate_nutrition(user)
 
@@ -435,7 +494,10 @@ async def recommend(user: UserRequest):
         "Dinner": user.dinner_cal
     }
 
-    meals = daily_plan(nutrition, is_disease, eaten_cal, user.recent_foods)
+    meals = daily_plan(nutrition, is_disease, eaten_cal, user.recent_foods, user.excluded_foods)
+    print("Output nutrition:", nutrition)
+    print("Output meals:", meals)
+    print("=============================")
 
     return {
         "nutrition": nutrition,
@@ -446,5 +508,9 @@ async def recommend(user: UserRequest):
 def calculate_tdee_api(user: UserRequest):
 
     nutrition, _ = calculate_nutrition(user)
+    print("==== TDEE API CALLED ====")
+    print("Input:", user.dict())
+    print("Output:", nutrition)
+    print("=========================")
 
     return nutrition
