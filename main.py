@@ -148,18 +148,17 @@ def is_similar_food(stt, recent_foods):
         return False
 
     for r in recent_foods:
-
         rname = food_name_map.get(r, "").lower()
 
-        # 🔥 FIX: tránh crash
         if not rname:
             continue
 
-        words = rname.split()
+        # Tách từ để so sánh độ tương đồng cơ bản (ví dụ: "Bún bò" và "Bún riêu")
+        words = [w for w in rname.split() if len(w) > 2] # Chỉ lấy các từ có nghĩa
         if len(words) == 0:
             continue
 
-        if words[0] in name:
+        if any(word in name for word in words):
             return True
 
     return False
@@ -180,10 +179,11 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
 
     selected = []
     used = set(used_stt or [])
-    # 🔥 FIX: loại luôn món đã gợi ý trước đó
+    
+    # Loại bỏ các món đã được yêu cầu loại trừ
     if excluded_foods:
         used.update(excluded_foods)
-    total_cal = 0   # FIX: kiểm soát tổng calo bữa
+    total_cal = 0
 
     for _ in range(max_items):
 
@@ -195,10 +195,8 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
         if len(foods) == 0:
             break
 
-        # =========================
-        # FIX: CHẶN MÓN VƯỢT CALO
-        # =========================
-        valid_mask = foods[:,0] <= remain[0] * 0.8
+        # CHẶN MÓN VƯỢT CALO: Món đơn lẻ không được vượt quá phần calo còn lại của bữa
+        valid_mask = foods[:,0] <= remain[0]
         foods = foods[valid_mask]
         stts = stts[valid_mask]
 
@@ -210,32 +208,27 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
         # =================================
         # BONUS THEO SỞ THÍCH USER
         # =================================
+        # Phần này xử lý gợi ý món ăn cùng loại hoặc tương tự lịch sử ăn uống
 
         bonus = np.zeros(len(stts))
 
-        # =========================
-        # BONUS sở thích
-        # =========================
         if recent_foods:
-            recent_categories = [food_category_map.get(r) for r in recent_foods]
+            recent_categories = [food_category_map.get(r) for r in recent_foods if r in food_category_map]
 
             for i, stt in enumerate(stts):
+                # Ưu tiên món cùng Category với các món người dùng hay ăn
                 if food_category_map.get(stt) in recent_categories:
-                    bonus[i] -= 0.3
-
-        if recent_foods:
+                    bonus[i] -= 0.4 # Giảm score để món này dễ được chọn hơn
 
             for i, stt in enumerate(stts):
-
+                # Ưu tiên món có tên tương tự (ví dụ: cùng là Bún, Phở...)
                 if stt in recent_foods:
                     bonus[i] -= 0.25
                 elif is_similar_food(stt, recent_foods):
                     bonus[i] -= 0.2
 
-        # =========================
-        # RANDOM nhẹ (giữ logic bạn)
-        # =========================
-        noise = np.random.uniform(0, 0.1, len(stts))  # FIX: random
+        # Thêm noise để thực đơn thay đổi mỗi lần nhấn Refresh
+        noise = np.random.uniform(0, 0.05, len(stts))
 
         if not is_disease_user:
             score = (
@@ -257,10 +250,8 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
         best = foods[idx]
         stt = int(stts[idx])
 
-        # =========================
-        # FIX: KHÔNG VƯỢT TỔNG BỮA
-        # =========================
-        if total_cal + best[0] > target["Calories"] * 1.05:
+        # KIỂM TRA NGHIÊM NGẶT: Tổng calo của bữa không được vượt quá target
+        if total_cal + best[0] > target["Calories"]:
             break
 
         selected.append({
@@ -274,7 +265,7 @@ def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=No
         remain -= best
         remain = np.maximum(remain, 0)
 
-        if total_cal >= target["Calories"] * 0.95:
+        if total_cal >= target["Calories"] * 0.9:
             break
 
     return selected
@@ -338,29 +329,27 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=No
     # =========================
     # 3. FIX BỮA TRƯA
     # =========================
+    # Ràng buộc: Bữa trưa phải có ít nhất 1 món nước hoặc tinh bột
     lunch = meals.get("Lunch", [])
-
     target_lunch_cal = nutrition["Calories"] * 0.4
     current_lunch_cal = sum(i["calories"] for i in lunch)
 
-    # =========================
-    # 1. ĐẢM BẢO CÓ TINH BỘT / MÓN NƯỚC
-    # =========================
     has_main = any(
-        food_category_map.get(i["stt"]) in ["Tinh bột", "Món nước"]
+        food_category_map.get(i.get("stt")) in ["Tinh bột", "Món nước"]
         for i in lunch
     )
 
-
     if not has_main:
+        # Tìm món thay thế phù hợp nếu chưa có món chính
         for stt in food_stt:
+            if stt in used_stt: continue
             cat = food_category_map.get(stt)
 
             if cat in ["Tinh bột", "Món nước"]:
                 cal = float(food_array[list(food_stt).index(stt)][0])
 
-                # 🔥 không vượt calo
-                if current_lunch_cal + cal <= target_lunch_cal * 1.05:
+                # Đảm bảo thêm món chính vào không làm vượt quá calo bữa trưa
+                if current_lunch_cal + cal <= target_lunch_cal:
                     lunch.append({
                         "stt": int(stt),
                         "calories": cal
@@ -368,28 +357,21 @@ def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=No
                     current_lunch_cal += cal
                 break
 
-    # =========================
-    # 2. NẾU THIẾU CALO → THÊM GIẢI KHÁT
-    # =========================
+    # Nếu sau khi fix vẫn còn thiếu nhiều calo, bổ sung món giải khát nhẹ
     if current_lunch_cal < target_lunch_cal * 0.9:
-
         remain = target_lunch_cal - current_lunch_cal
-
         for stt in food_stt:
+            if stt in used_stt: continue
             cat = food_category_map.get(stt)
 
             if cat == "Giải khát":
                 cal = float(food_array[list(food_stt).index(stt)][0])
-
-                # 🔥 chọn món gần với phần thiếu
-                if cal <= remain * 1.1:
+                if cal <= remain:
                     lunch.append({
                         "stt": int(stt),
                         "calories": cal
                     })
                     break
-
-    # cập nhật lại meals
     meals["Lunch"] = lunch
     return meals
 
@@ -404,6 +386,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Định nghĩa Model cho request token
+class TokenRequest(BaseModel):
+    firebase_uid: str
+    email: str
+
+# Thêm Route /token để sửa lỗi 404 từ Frontend
+@app.post("/token")
+async def get_token(req: TokenRequest):
+    return {"access_token": "mock_access_token_for_internal_use"}
 
 class UserRequest(BaseModel):
     age: int
