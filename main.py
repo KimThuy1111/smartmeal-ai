@@ -1,400 +1,22 @@
-from unittest import result
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import pandas as pd
+
 import numpy as np
-import random
-from sklearn.ensemble import RandomForestRegressor
+import time
+import hashlib
+import json
 
-# 1.Load and tiền xử lý nutrition dataset
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler
 
-print("Loading nutrition dataset...")
+# Firebase
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-df = pd.read_csv("nutrition.csv")
-# Đổi tên cột 
-df = df.rename(columns={
-    "Ages": "age",
-    "Gender": "gender",
-    "Height": "height",
-    "Weight": "weight",
-    "Activity Level": "activity",
-    "Dietary Preference": "diet",
-    "Disease": "disease",
-    "Calories": "calories",
-    "Protein": "protein",
-    "Carbohydrates": "carb",
-    "Fat": "fat"
-})
 
-# Xóa các cột không cần thiết
-for col in [
-    "Breakfast Suggestion",
-    "Lunch Suggestion",
-    "Dinner Suggestion",
-    "Snack Suggestion"
-]:
-    if col in df.columns:
-        df.drop(columns=col, inplace=True)
-# Mã hóa dữ liệu (encoding) 
-df["gender"] = df["gender"].map({"Male":1,"Female":0})
-
-activity_map = {
-    "Sedentary":0,
-    "Lightly Active":1,
-    "Moderately Active":2,
-    "Very Active":3
-}
-df["activity"] = df["activity"].map(activity_map)
-
-# One-hot encoding cho các cột disease và diet
-df = pd.get_dummies(df, columns=["disease","diet"])
-# Chia cột target và feature
-target_cols = ["calories","protein","carb","fat"]
-feature_cols = [c for c in df.columns if c not in target_cols]
-
-df = df.dropna().reset_index(drop=True)
-
-X = df[feature_cols]
-y = df[target_cols]
-
-# Huấn luyện mô hình Random Forest Regressor để dự đoán nhu cầu dinh dưỡng cho người có bệnh lý
-model = RandomForestRegressor(
-    n_estimators=50,
-    max_depth=8,
-    random_state=42,
-    n_jobs=-1
-)
-
-model.fit(X, y)
-
-print("Model trained successfully!")
-
-# Tính TDEE theo công thức của WHO nếu không có bệnh lý
-
-def who_tdee(age, gender, height, weight, activity):
-
-    if gender.lower() == "male":
-        bmr = 10*weight + 6.25*height - 5*age + 5
-    else:
-        bmr = 10*weight + 6.25*height - 5*age - 161
-
-    activity_factor = {
-        "Sedentary": 1.2,
-        "Lightly Active": 1.375,
-        "Moderately Active": 1.55,
-        "Very Active": 1.725,
-        "Extremely Active": 1.9
-    }
-     # TDEE = BMR * Activity Factor
-    tdee = bmr * activity_factor.get(activity, 1.2)
-
-    protein_pct = random.uniform(0.12, 0.15)
-    fat_pct = random.uniform(0.15, 0.30)
-    carb_pct = 1 - protein_pct - fat_pct
-
-    return {
-        "Calories": round(tdee,1),
-        "Protein": round((tdee*protein_pct)/4,1),
-        "carb": round((tdee*carb_pct)/4,1),
-        "Fat": round((tdee*fat_pct)/9,1)
-    }
-
-# Load and tiền xử lý food dataset
-
-print("Loading food dataset...")
-
-df_food = pd.read_csv("food.csv", sep=";", decimal=",", engine="python")
-
-df_food = df_food.rename(columns={
-    "STT":"stt",
-    "Name":"name_vi",
-    "Calories":"calories",
-    "Chất đạm":"protein",
-    "Chất béo":"fat",
-    "Carbohydrate":"carb",
-    "Category":"category"
-})
-
-df_food = df_food[["stt","name_vi","calories","protein","fat","carb","category"]]
-
-food_category_map = dict(zip(df_food["stt"], df_food["category"]))
-
-for col in ["calories","protein","fat","carb"]:
-    df_food[col] = pd.to_numeric(df_food[col], errors="coerce")
-
-df_food = df_food.dropna().reset_index(drop=True)
-
-print("Food items loaded:", len(df_food))
-food_array = df_food[["calories","protein","carb","fat"]].values
-food_stt = df_food["stt"].values
-food_names = df_food["name_vi"].values
-
-# =============================
-# TẠO MAP MÓN TƯƠNG TỰ
-# =============================
-
-food_name_map = dict(zip(food_stt, food_names))
-
-def is_similar_food(stt, recent_foods):
-
-    if not recent_foods:
-        return False
-
-    name = food_name_map.get(stt, "").lower()
-
-    if not name:   # 🔥 FIX
-        return False
-
-    for r in recent_foods:
-
-        rname = food_name_map.get(r, "").lower()
-
-        # 🔥 FIX: tránh crash
-        if not rname:
-            continue
-
-        words = rname.split()
-        if len(words) == 0:
-            continue
-
-        if words[0] in name:
-            return True
-
-    return False
-
-# Hàm gợi ý món ăn cho từng bữa dựa trên phần còn thiếu của nhu cầu dinh dưỡng và các món đã dùng trong ngày (nếu có)
-# =============================
-# RECOMMEND MEAL (FIXED)
-# =============================
-
-def recommend_meal(target, is_disease_user=False, used_stt=None, recent_foods=None, excluded_foods=None, max_items=2):
-
-    remain = np.array([
-        target["Calories"],
-        target["Protein"],
-        target["carb"],
-        target["Fat"]
-    ])
-
-    selected = []
-    used = set(used_stt or [])
-    # 🔥 FIX: loại luôn món đã gợi ý trước đó
-    if excluded_foods:
-        used.update(excluded_foods)
-    total_cal = 0   # FIX: kiểm soát tổng calo bữa
-
-    for _ in range(max_items):
-
-        mask = ~np.isin(food_stt, list(used))
-
-        foods = food_array[mask]
-        stts = food_stt[mask]
-
-        if len(foods) == 0:
-            break
-
-        # =========================
-        # FIX: CHẶN MÓN VƯỢT CALO
-        # =========================
-        valid_mask = foods[:,0] <= remain[0] * 0.8
-        foods = foods[valid_mask]
-        stts = stts[valid_mask]
-
-        if len(foods) == 0:
-            break
-
-        diff = np.abs(foods - remain)
-
-        # =================================
-        # BONUS THEO SỞ THÍCH USER
-        # =================================
-
-        bonus = np.zeros(len(stts))
-
-        # =========================
-        # BONUS sở thích
-        # =========================
-        if recent_foods:
-            recent_categories = [food_category_map.get(r) for r in recent_foods]
-
-            for i, stt in enumerate(stts):
-                if food_category_map.get(stt) in recent_categories:
-                    bonus[i] -= 0.3
-
-        if recent_foods:
-
-            for i, stt in enumerate(stts):
-
-                if stt in recent_foods:
-                    bonus[i] -= 0.25
-                elif is_similar_food(stt, recent_foods):
-                    bonus[i] -= 0.2
-
-        # =========================
-        # RANDOM nhẹ (giữ logic bạn)
-        # =========================
-        noise = np.random.uniform(0, 0.1, len(stts))  # FIX: random
-
-        if not is_disease_user:
-            score = (
-                diff[:,0] / max(target["Calories"],1) +
-                0.5 * diff[:,2] / max(target["carb"],1) +
-                0.3 * diff[:,3] / max(target["Fat"],1) +
-                0.2 * diff[:,1] / max(target["Protein"],1)
-            ) + bonus + noise
-        else:
-            score = (
-                diff[:,0] / max(target["Calories"],1) +
-                1.2 * diff[:,2] / max(target["carb"],1) +
-                1.0 * diff[:,3] / max(target["Fat"],1) +
-                1.5 * diff[:,1] / max(target["Protein"],1)
-            ) + bonus + noise
-
-        idx = np.argmin(score)
-
-        best = foods[idx]
-        stt = int(stts[idx])
-
-        # =========================
-        # FIX: KHÔNG VƯỢT TỔNG BỮA
-        # =========================
-        if total_cal + best[0] > target["Calories"] * 1.05:
-            break
-
-        selected.append({
-            "stt": stt,
-            "calories": float(best[0])
-        })
-
-        used.add(stt)
-        total_cal += best[0]
-
-        remain -= best
-        remain = np.maximum(remain, 0)
-
-        if total_cal >= target["Calories"] * 0.95:
-            break
-
-    return selected
-
-
-# Lập kế hoạch ăn uống hàng ngày dựa trên nhu cầu dinh dưỡng và các món đã ăn trong ngày (nếu có)
-def daily_plan(nutrition, is_disease_user=False, eaten_cal=None, recent_foods=None, excluded_foods=None):
-
-    ratios = {"Breakfast":0.3, "Lunch":0.4, "Dinner":0.3}
-    meals = {}
-    used_stt = set()
-
-    # =========================
-    # 1. CHECK CALO
-    # =========================
-    total_eaten = 0
-    if eaten_cal:
-        total_eaten = (
-            eaten_cal.get("Breakfast",0) +
-            eaten_cal.get("Lunch",0) +
-            eaten_cal.get("Dinner",0)
-        )
-
-    if total_eaten >= nutrition["Calories"]:
-        return {
-            "Breakfast": [],
-            "Lunch": [],
-            "Dinner": []
-        }
-
-    # =========================
-    # 2. BUILD MENU
-    # =========================
-    for meal, r in ratios.items():
-
-        target_cal = nutrition["Calories"] * r
-        eaten = eaten_cal.get(meal, 0) if eaten_cal else 0
-
-        if eaten >= target_cal:
-            meals[meal] = []
-            continue
-
-        remain_ratio = max((target_cal - eaten) / target_cal, 0)
-
-        meals[meal] = recommend_meal(
-            target={
-                "Calories": nutrition["Calories"] * r * remain_ratio,
-                "Protein": nutrition["Protein"] * r * remain_ratio,
-                "carb": nutrition["carb"] * r * remain_ratio,
-                "Fat": nutrition["Fat"] * r * remain_ratio
-            },
-            is_disease_user=is_disease_user,
-            used_stt=used_stt,
-            recent_foods=recent_foods,
-            excluded_foods=excluded_foods
-        )
-
-        for item in meals[meal]:
-            used_stt.add(item["stt"])
-
-    # =========================
-    # 3. FIX BỮA TRƯA
-    # =========================
-    lunch = meals.get("Lunch", [])
-
-    target_lunch_cal = nutrition["Calories"] * 0.4
-    current_lunch_cal = sum(i["calories"] for i in lunch)
-
-    # =========================
-    # 1. ĐẢM BẢO CÓ TINH BỘT / MÓN NƯỚC
-    # =========================
-    has_main = any(
-        food_category_map.get(i["stt"]) in ["Tinh bột", "Món nước"]
-        for i in lunch
-    )
-
-
-    if not has_main:
-        for stt in food_stt:
-            cat = food_category_map.get(stt)
-
-            if cat in ["Tinh bột", "Món nước"]:
-                cal = float(food_array[list(food_stt).index(stt)][0])
-
-                # 🔥 không vượt calo
-                if current_lunch_cal + cal <= target_lunch_cal * 1.05:
-                    lunch.append({
-                        "stt": int(stt),
-                        "calories": cal
-                    })
-                    current_lunch_cal += cal
-                break
-
-    # =========================
-    # 2. NẾU THIẾU CALO → THÊM GIẢI KHÁT
-    # =========================
-    if current_lunch_cal < target_lunch_cal * 0.9:
-
-        remain = target_lunch_cal - current_lunch_cal
-
-        for stt in food_stt:
-            cat = food_category_map.get(stt)
-
-            if cat == "Giải khát":
-                cal = float(food_array[list(food_stt).index(stt)][0])
-
-                # 🔥 chọn món gần với phần thiếu
-                if cal <= remain * 1.1:
-                    lunch.append({
-                        "stt": int(stt),
-                        "calories": cal
-                    })
-                    break
-
-    # cập nhật lại meals
-    meals["Lunch"] = lunch
-    return meals
-
-# Khởi tạo FastAPI và cấu hình CORS
-
+# Khởi tạo FastAPI 
 app = FastAPI()
 
 app.add_middleware(
@@ -405,112 +27,567 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Kết nối Firebase
+cred = credentials.Certificate("firebase_key.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+
+# Cache layer
+
+food_cache = {}
+group_score_cache = {}
+training_cache = {}
+
+CACHE_TTL = 300
+
+
+# Request model
 class UserRequest(BaseModel):
     age: int
     gender: str
     height: float
     weight: float
     activity: str
-    disease: str | None = None
+    goal: str = "maintain"
+
+    # Lượng calories đã tiêu thụ trong ngày (từng bữa)
     breakfast_cal: float = 0
     lunch_cal: float = 0
     dinner_cal: float = 0
+
+    # Danh sách các món cần loại trừ
     recent_foods: list[int] | None = None
-    # 🔥 NEW: món đã gợi ý trong ngày
     excluded_foods: list[int] | None = None
 
-# Hàm chuyển đổi giới tính 
-def convert_gender(gender):
-    if gender.lower() in ["nam","male"]:
-        return "male"
-    return "female"
 
-# Hàm chuyển đổi mức độ vận động
-def convert_activity(activity):
-    mapping = {
-        "ít vận động": "Sedentary",
-        "vận động nhẹ": "Lightly Active",
-        "vận động vừa": "Moderately Active",
-        "vận động nhiều": "Very Active"
+# Tạo cache key cho nhóm người dùng có đặc điểm tương tự
+# Nhóm những người có cân nặng, chiều cao, giới tính, hoạt động và mục tiêu tương tự
+def make_group_key(user):
+    # Nhóm cân nặng (5kg một nhóm)
+    weight_group = int(user.weight // 5) * 5
+    # Nhóm chiều cao (5cm một nhóm)
+    height_group = int(user.height // 5) * 5
+
+    payload = {
+        "gender": user.gender,
+        "goal": user.goal,
+        "activity": user.activity,
+        "weight_group": weight_group,
+        "height_group": height_group
     }
-    return mapping.get(activity.lower(), "Sedentary")
 
-# Hàm tính nhu cầu dinh dưỡng (TDEE) dựa trên thông tin người dùng 
-def calculate_nutrition(user: UserRequest):
+    # Tạo hash từ payload để làm cache key
+    raw = json.dumps(
+        payload,
+        sort_keys=True
+    )
 
-    gender_en = convert_gender(user.gender)
-    activity_en = convert_activity(user.activity)
+    return hashlib.md5(
+        raw.encode()
+    ).hexdigest()
 
-    # Nếu không có bệnh dùng WHO
-    if not user.disease or user.disease == "None":
 
-        nutrition = who_tdee(
-            user.age,
-            gender_en,
-            user.height,
-            user.weight,
-            activity_en
+# Kiểm tra cache có còn hợp lệ dựa trên thời gian
+def is_cache_valid(item):
+    return time.time() - item["time"] < CACHE_TTL
+
+
+# Load dữ liệu món ăn từ Firestore vào memor. Lấy calories, protein, carb, fat từ từng món
+def load_food_data():
+    docs = db.collection("food").stream()
+    X = []
+    stt_list = []
+    category_list = []
+
+    for doc in docs:
+        data = doc.to_dict()
+
+        # Cache từng món ăn để tránh query Firestore lại
+        food_cache[doc.id] = data
+
+        X.append([
+            float(data.get("calories", 0)),
+            float(data.get("protein", 0)),
+            float(data.get("carb", 0)),
+            float(data.get("fat", 0))
+        ])
+
+        stt_list.append(int(data.get("stt", 0)))
+        category_list.append(data.get("categoryId", ""))
+
+    return np.array(X), np.array(stt_list), np.array(category_list)
+
+X_food, food_stt, food_category = load_food_data()
+
+# Load dữ liệu huấn luyện từ FirestoreFirestore. Lấy dữ liệu từ suggested_menus (thực đơn gợi ý) và food_diary (nhật ký ăn)
+def load_training_data():
+    # Kiểm tra training cache
+    if "dataset" in training_cache:
+        cached = training_cache["dataset"]
+        if is_cache_valid(cached):
+            return cached["X"], cached["y"]
+
+    X = []  # Mảng đặc trưng
+    y = []  # Mảng nhãn (1=thích, 0=không thích)
+
+    # Duyệt qua tất cả thực đơn gợi ý
+    docs = db.collection("suggested_menus").stream()
+
+    for doc in docs:
+        data = doc.to_dict()
+        liked = data.get("liked")
+
+        # Bỏ qua nếu chưa được đánh giá
+        if liked is None:
+            continue
+
+        # Tạo nhãn (1 thích, 0 không thích)
+        label = 1 if liked else 0
+
+        # Duyệt qua từng bữa trong thực đơn
+        for meal in data.get("menu", {}):
+            # Duyệt qua từng món ăn trong bữa
+            for food_id in data["menu"][meal]:
+                # Dùng food cache thay vì query Firestore
+                if food_id in food_cache:
+                    f = food_cache[food_id]
+                else:
+                    food_doc = db.collection("food").document(food_id).get()
+
+                    if not food_doc.exists:
+                        continue
+
+                    f = food_doc.to_dict()
+                    food_cache[food_id] = f
+
+                X.append([
+                    f.get("calories", 0),
+                    f.get("protein", 0),
+                    f.get("carb", 0),
+                    f.get("fat", 0)
+                ])
+                y.append(label)
+
+    # Duyệt qua food_diary (những món đã ăn)
+    diary_docs = db.collection("food_diary").stream()
+
+    for doc in diary_docs:
+        data = doc.to_dict()
+        food_id = data.get("foodId")
+
+        if food_id in food_cache:
+            f = food_cache[food_id]
+        else:
+            food_doc = db.collection("food").document(food_id).get()
+
+            if not food_doc.exists:
+                continue
+
+            f = food_doc.to_dict()
+            food_cache[food_id] = f
+
+        X.append([
+            f.get("calories", 0),
+            f.get("protein", 0),
+            f.get("carb", 0),
+            f.get("fat", 0)
+        ])
+
+        y.append(1)  
+
+    X_np = np.array(X)
+    y_np = np.array(y)
+
+    # Save training cache
+    training_cache["dataset"] = {
+        "X": X_np,
+        "y": y_np,
+        "time": time.time()
+    }
+
+    return X_np, y_np
+
+
+# Huấn luyện mô hình Logistic Regression để dự đoán món ăn được thích hay không
+
+def train_model():
+    # Load dữ liệu huấn luyện
+    X_train, y_train = load_training_data()
+
+    # Kiểm tra nếu không đủ dữ liệu huấn luyện
+    if len(X_train) == 0 or len(set(y_train)) < 2:
+        print("Không đủ data train → fallback")
+        return None, None
+
+    # Chuẩn hóa dữ liệu
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_train)
+
+    # Huấn luyện mô hình Logistic Regression
+    model = LogisticRegression()
+    model.fit(X_scaled, y_train)
+
+    print("Train xong:", len(X_train), "samples")
+
+    return model, scaler
+
+
+model_lr, scaler = train_model()
+
+
+# Huấn luyện mô hình KNN để tìm những món ăn tương tự. Tính toán khoảng cách giữa các món ăn dựa trên thành phần dinh dưỡng
+knn = NearestNeighbors(n_neighbors=5)
+knn.fit(X_food)
+
+# Tính điểm tương tự dựa trên khoảng cách trung bình đến 5 hàng xóm gần nhất
+distances, _ = knn.kneighbors(X_food)
+knn_scores_cache = 1 / (
+    1 + distances.mean(axis=1)
+)
+
+
+# Hàm tính điểm ML cho món ăn dựa trên mô hình Logistic Regression. Dự đoán xác suất người dùng sẽ thích món ăn này
+def lr_score(food):
+    if model_lr is None:
+        return 0
+
+    return model_lr.predict_proba(
+        scaler.transform([food])
+    )[0][1]
+
+
+
+# Tính điểm cho tất cả các món ăn theo nhóm người dùng. 
+def calculate_group_scores(user):
+    # Tạo key nhóm dựa trên đặc điểm người dùng
+    group_key = make_group_key(user)
+
+    # Kiểm tra nếu đã có cache nhóm thì dùng lại
+    if group_key in group_score_cache:
+        cached = group_score_cache[group_key]
+        if is_cache_valid(cached):
+            return cached["scores"]
+
+    scores = []
+
+    # Duyệt qua tất cả các món ăn
+    for i, food in enumerate(X_food):
+        stt = int(food_stt[i])
+
+        # Tính điểm dinh dưỡng (40% calories, 30% protein, 20% carb, 10% fat)
+        nutrition_score = (
+            (food[0] / 500) * 0.4 +
+            (food[1] / 50) * 0.3 +
+            (food[2] / 100) * 0.2 +
+            (food[3] / 30) * 0.1
         )
 
-        is_disease = False
+        ml_score = lr_score(food)
 
-    # Nếu có bệnh dùng mô hình dự đoán
+        similarity_score = (knn_scores_cache[i])
+
+        # Tổng hợp điểm
+        total_score = (nutrition_score + ml_score + similarity_score
+        )
+
+        scores.append({
+            "stt": stt,
+            "food": food,
+            "score": total_score
+        })
+
+    # Sắp xếp giảm dần theo score
+
+    scores.sort(
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    # Lưu cache nhóm để tái sử dụng
+    group_score_cache[group_key] = {
+        "scores": scores,
+        "time": time.time()
+    }
+
+    return scores
+
+
+# Hàm tính TDEE và nhu cầu dinh dưỡng hàng ngày dựa trên thông tin người dùng
+
+@app.post("/tdee")
+def who_tdee(user):
+    # Tính BMR dựa trên giới tính
+    if user.gender.lower() == "nam":
+        bmr = 10 * user.weight + 6.25 * user.height - 5 * user.age + 5
     else:
-        activity_encoded = activity_map.get(activity_en,0)
+        bmr = 10 * user.weight + 6.25 * user.height - 5 * user.age - 161
 
-        X_user = pd.DataFrame([{
-            "age": user.age,
-            "gender": 1 if gender_en == "male" else 0,
-            "height": user.height,
-            "weight": user.weight,
-            "activity": activity_encoded
-        }]).reindex(columns=X.columns, fill_value=0)
+    # Hệ số hoạt động động (từ nhẹ nhất đến nặng nhất)
+    activity_map = {
+        "ít vận động": 1.2,
+        "vận động nhẹ": 1.375,
+        "vận động vừa": 1.55,
+        "vận động nhiều": 1.725,
+        "vận động cực nhiều": 1.9
+    }
 
-        pred = model.predict(X_user)[0]
+    # Tính TDEE = BMR * hệ số hoạt động
+    tdee = bmr * activity_map.get(
+        user.activity.lower(),
+        1.2
+    )
 
-        nutrition = {
-            "Calories": round(pred[0],1),
-            "Protein": round(pred[1],1),
-            "carb": round(pred[2],1),
-            "Fat": round(pred[3],1)
-        }
+    # Tỷ lệ macro nutrients (12.5% protein, 65% carb, 22.5% fat)
+    protein_ratio = 0.125
+    fat_ratio = 0.225
+    carb_ratio = 0.65
 
-        is_disease = True
-
-    return nutrition, is_disease
-
-# Endpoint để nhận thông tin người dùng và trả về nhu cầu dinh dưỡng cùng gợi ý món ăn hàng ngày
-@app.post("/recommend")
-async def recommend(user: UserRequest):
-    print("==== RECOMMEND API CALLED ====")
-    print("Input:", user.dict())
+    return {
+        "Calories": tdee,
+        "Protein": tdee * protein_ratio / 4,  # 1g protein = 4 kcal
+        "carb": tdee * carb_ratio / 4,  # 1g carb = 4 kcal
+        "Fat": tdee * fat_ratio / 9  # 1g fat = 9 kcal
+    }
 
 
-    nutrition, is_disease = calculate_nutrition(user)
+# Hàm gợi ý món ăn cho bữa ăn 
+def recommend_meal(
+        target,
+        scored_foods,
+        recent_foods=None,
+        excluded_foods=None,
+        used=None
+):
 
-    eaten_cal = {
+    # Tính lượng dinh dưỡng còn lại cần cung cấp cho bữa ăn này
+    remain = np.array([
+        target["Calories"],
+        target["Protein"],
+        target["carb"],
+        target["Fat"]
+    ])
+
+    # Những món cần loại trừ
+    used = set(used or [])
+
+    if excluded_foods:
+        used.update(excluded_foods)
+
+    selected = []
+
+    # 5.1 Lấy danh sách category (loại) những món ăn đã ăn gần đây
+    favorite_categories = []
+
+    if recent_foods:
+        for food_id in recent_foods:
+            idx = np.where(
+                food_stt == food_id
+            )[0]
+
+            if len(idx) == 0:
+                continue
+
+            favorite_categories.append(
+                food_category[idx[0]]
+            )
+
+    # 5.2 Chọn tối đa 4 món cho bữa ăn
+    for _ in range(4):
+        best_score = float("inf")
+        best_food = None
+        for item in scored_foods:
+            stt = item["stt"]
+            food = item["food"]
+
+            # Bỏ qua những món đã dùng
+            if stt in used:
+                continue
+
+            # Bỏ qua món có dữ liệu lỗi (0 hoặc âm)
+            if (
+                food[0] <= 0 or
+                food[1] <= 0
+            ):
+                continue
+
+            # Bỏ qua nếu calories vượt quá 20% lượng cần
+            if food[0] > remain[0] * 1.2:
+                continue
+
+            # Bỏ qua nếu protein vượt quá 50% lượng cần
+            if food[1] > remain[1] * 1.5:
+                continue
+
+            # Bỏ qua nếu fat vượt quá 50% lượng cần
+            if food[3] > remain[3] * 1.5:
+                continue
+
+            # Tính độ lệch dinh dưỡng giữa món ăn và nhu cầu còn lại
+            diff = np.abs(
+                remain - food
+            )
+
+            # Chuẩn hóa độ lệch thành giá trị tương đối
+            cal_diff = diff[0] / max(remain[0], 1)
+            protein_diff = diff[1] / max(remain[1], 1)
+            carb_diff = diff[2] / max(remain[2], 1)
+            fat_diff = diff[3] / max(remain[3], 1)
+
+            # Tính điểm dinh dưỡng (Calories 45%, Protein 125%, Carb 80%, Fat 110%)
+            nutrition_score = (
+                cal_diff * 0.45 +
+                protein_diff * 1.25 +
+                carb_diff * 0.8 +
+                fat_diff * 1.1
+            )
+
+            # Ưu tiên những món cùng loại (category) với những món ăn gần đây
+            category_bonus = 0
+
+            idx = np.where(
+                food_stt == stt
+            )[0]
+
+            if len(idx) > 0:
+                category = food_category[idx[0]]
+                if category in favorite_categories:
+                    category_bonus = 0.25
+
+            # Tránh lặp lại các món gần đây
+            recent_penalty = 0
+
+            if (
+                recent_foods and
+                stt in recent_foods
+            ):
+                recent_penalty = 0.5
+
+            # Tính tổng điểm (sai số dinh dưỡng ít nhất là tốt)
+            score = (
+                nutrition_score +
+                recent_penalty -
+                category_bonus -
+                item["score"] * 0.03
+            )
+
+            # Chọn món có điểm thấp nhất
+            if score < best_score:
+                best_score = score
+                best_food = item
+
+        if best_food is None:
+            break
+
+        stt = best_food["stt"]
+        food = best_food["food"]
+
+        # Thêm món đã chọn vào danh sách
+        selected.append({
+            "stt": stt,
+            "calories": float(food[0])
+        })
+
+        used.add(stt)
+
+        # Cập nhật lượng dinh dưỡng còn lại sau khi chọn món này
+        remain -= food
+
+        # Đảm bảo các giá trị không âm
+        remain = np.maximum(
+            remain,
+            0
+        )
+
+        # Dừng nếu gần đủ calories (chỉ còn dưới 80 kcal)
+        if remain[0] <= 80:
+            break
+
+    return selected
+
+
+# 3. Hàm gợi ý thực đơn hàng ngày (breakfast, lunch, dinner). Tính toán nhu cầu dinh dưỡng cho từng bữa dựa trên TDEE
+def daily_plan(user):
+    # 3.1 Tính nhu cầu dinh dưỡng hàng ngày
+    nutrition = who_tdee(user)
+
+    # Lượng calories đã tiêu thụ trong ngày theo từng bữa
+    eaten = {
         "Breakfast": user.breakfast_cal,
         "Lunch": user.lunch_cal,
         "Dinner": user.dinner_cal
     }
 
-    meals = daily_plan(nutrition, is_disease, eaten_cal, user.recent_foods, user.excluded_foods)
-    print("Output nutrition:", nutrition)
-    print("Output meals:", meals)
-    print("=============================")
-
-    return {
-        "nutrition": nutrition,
-        "menu": meals
+    # Tỷ lệ calo phân bổ cho từng bữa. Breakfast 30%, Lunch 40%, Dinner 30%
+    ratios = {
+        "Breakfast": 0.3,
+        "Lunch": 0.4,
+        "Dinner": 0.3
     }
-# Endpoint để chỉ trả về nhu cầu dinh dưỡng (TDEE) 
-@app.post("/tdee")
-def calculate_tdee_api(user: UserRequest):
 
-    nutrition, _ = calculate_nutrition(user)
-    print("==== TDEE API CALLED ====")
-    print("Input:", user.dict())
-    print("Output:", nutrition)
-    print("=========================")
+    meals = {}
 
-    return nutrition
+    used = set()
+
+    # Lấy danh sách các món ăn theo nhóm người dùng
+    scored_foods = calculate_group_scores(user)
+
+    for meal, r in ratios.items():
+        # Tính target calories cho bữa ăn này
+        target = nutrition["Calories"] * r
+
+        # Nếu đã ăn đủ rồi thì bỏ qua bữa này
+        if eaten[meal] >= target:
+            meals[meal] = []
+            continue
+
+        # Tính tỷ lệ dinh dưỡng còn lại cần cung cấp cho bữa này
+        ratio_remain = (
+            target - eaten[meal]
+        ) / target
+
+        # Lấy 4 món gợi ý cho bữa này
+        meals[meal] = recommend_meal(
+            target={
+                "Calories":
+                    nutrition["Calories"] *
+                    r *
+                    ratio_remain,
+                "Protein":
+                    nutrition["Protein"] *
+                    r *
+                    ratio_remain,
+
+                "carb":
+                    nutrition["carb"] *
+                    r *
+                    ratio_remain,
+
+                "Fat":
+                    nutrition["Fat"] *
+                    r *
+                    ratio_remain
+            },
+            scored_foods=scored_foods,
+            recent_foods=user.recent_foods,
+            excluded_foods=user.excluded_foods,
+            used=used
+        )
+
+        # Cập nhật danh sách những món đã gợi ý để không trùng 
+        for f in meals[meal]:
+            used.add(f["stt"])
+
+    # Trả về thực đơn gợi ý cho 3 bữa
+    return meals
+
+
+# Nhận thông tin người dùng từ Flutter và trả về thực đơn gợi ý
+@app.post("/recommend")
+async def recommend(user: UserRequest):
+    # Trả về kết quả dưới dạng JSON
+    result = {
+        "menu": daily_plan(user)
+    }
+
+    return result

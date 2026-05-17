@@ -1,0 +1,117 @@
+[2026-04-09 16:51:13] [main] [INFO] Loading food dataset...
+[2026-04-09 16:51:13] [main] [INFO] Food items loaded: 423
+[2026-04-09 16:59:26] [main] [INFO] Loading food dataset...
+[2026-04-09 16:59:26] [main] [INFO] Food items loaded: 423
+[2026-04-09 16:59:36] [root] [ERROR] ERROR in verify_jwt: Missing token
+NoneType: None
+[2026-04-09 16:59:36] [root] [ERROR] ERROR in verify_jwt: Missing token
+NoneType: None
+[2026-04-09 17:00:21] [main] [INFO] Token requested for Firebase user: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:00:21] [auth] [INFO] Token created for user: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:00:21] [root] [INFO] REQUEST: POST /recommend - User: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:00:21] [root] [ERROR] ERROR in recommend: 'coroutine' object is not subscriptable
+Traceback (most recent call last):
+  File "D:\TLTN\smartmeal\smartmeal-ai\main.py", line 438, in recommend
+    meals = daily_plan(user, eaten_cal, user.recent_foods, user.excluded_foods)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\TLTN\smartmeal\smartmeal-ai\main.py", line 328, in daily_plan
+    if total_eaten >= nutrition["Calories"]:
+                      ~~~~~~~~~^^^^^^^^^^^^
+TypeError: 'coroutine' object is not subscriptable
+[2026-04-09 17:00:21] [root] [INFO] RESPONSE: POST /recommend - Status: 500 - Time: 1.4846324920654297ms
+[2026-04-09 17:00:26] [main] [INFO] Token requested for Firebase user: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:00:26] [auth] [INFO] Token created for user: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:00:26] [root] [INFO] REQUEST: POST /recommend - User: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:00:26] [root] [ERROR] ERROR in recommend: 'coroutine' object is not subscriptable
+Traceback (most recent call last):
+  File "D:\TLTN\smartmeal\smartmeal-ai\main.py", line 438, in recommend
+    meals = daily_plan(user, eaten_cal, user.recent_foods, user.excluded_foods)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\TLTN\smartmeal\smartmeal-ai\main.py", line 328, in daily_plan
+    if total_eaten >= nutrition["Calories"]:
+                      ~~~~~~~~~^^^^^^^^^^^^
+TypeError: 'coroutine' object is not subscriptable
+[2026-04-09 17:00:26] [root] [INFO] RESPONSE: POST /recommend - Status: 500 - Time: 1.0008811950683594ms
+[2026-04-09 17:01:11] [main] [INFO] Loading food dataset...
+[2026-04-09 17:01:11] [main] [INFO] Food items loaded: 423
+[2026-04-09 17:01:50] [main] [INFO] Token requested for Firebase user: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:01:50] [auth] [INFO] Token created for user: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:01:50] [root] [INFO] REQUEST: POST /recommend - User: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:01:50] [root] [ERROR] ERROR in recommend: 'coroutine' object is not subscriptable
+Traceback (most recent call last):
+  File "D:\TLTN\smartmeal\smartmeal-ai\main.py", line 438, in recommend
+    meals = daily_plan(user, eaten_cal, user.recent_foods, user.excluded_foods)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\TLTN\smartmeal\smartmeal-ai\main.py", line 328, in daily_plan
+    if total_eaten >= nutrition["Calories"]:
+                      ~~~~~~~~~^^^^^^^^^^^^
+TypeError: 'coroutine' object is not subscriptable
+[2026-04-09 17:01:50] [root] [INFO] RESPONSE: POST /recommend - Status: 500 - Time: 1.4331340789794922ms
+[2026-04-09 17:03:48] [main] [INFO] Loading food dataset...
+[2026-04-09 17:03:48] [main] [INFO] Food items loaded: 423
+[2026-04-09 17:04:42] [main] [INFO] Loading food dataset...
+[2026-04-09 17:04:42] [main] [INFO] Food items loaded: 423
+[2026-04-09 17:05:31] [main] [INFO] Loading food dataset...
+[2026-04-09 17:05:31] [main] [INFO] Food items loaded: 423
+[2026-04-09 17:05:45] [main] [INFO] Loading food dataset...
+[2026-04-09 17:05:45] [main] [INFO] Food items loaded: 423
+[2026-04-09 17:05:56] [main] [INFO] Token requested for Firebase user: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:05:56] [auth] [INFO] Token created for user: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:05:56] [root] [INFO] REQUEST: POST /recommend - User: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:05:56] [main] [INFO] Menu recommended for user 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-09 17:05:56] [root] [INFO] RESPONSE: POST /recommend - Status: 200 - Time: 2.482891082763672ms
+[2026-04-09 17:07:06] [main] [INFO] Loading food dataset...
+[2026-04-09 17:07:06] [main] [INFO] Food items loaded: 423
+[2026-04-09 17:07:06] [main] [INFO] Loading food dataset...
+[2026-04-09 17:07:06] [main] [INFO] Food items loaded: 423
+[2026-04-09 17:08:26] [main] [INFO] Loading food dataset...
+[2026-04-09 17:08:26] [main] [INFO] Food items loaded: 423
+[2026-04-09 17:08:27] [main] [INFO] Loading food dataset...
+[2026-04-09 17:08:27] [main] [INFO] Food items loaded: 423
+[2026-04-09 18:51:08] [main] [INFO] Loading food dataset...
+[2026-04-09 18:51:08] [main] [INFO] Food items loaded: 423
+[2026-04-09 21:28:27] [main] [INFO] Loading food dataset...
+[2026-04-09 21:28:27] [main] [INFO] Food items loaded: 423
+[2026-04-16 21:39:15] [main] [INFO] Loading food dataset...
+[2026-04-16 21:39:15] [main] [INFO] Food items loaded: 423
+[2026-04-16 21:39:15] [main] [INFO] Token requested for Firebase user: test-user
+[2026-04-16 21:39:15] [auth] [INFO] Token created for user: test-user
+[2026-04-16 21:39:15] [httpx] [INFO] HTTP Request: POST http://testserver/token "HTTP/1.1 200 OK"
+[2026-04-16 21:39:15] [root] [INFO] REQUEST: POST /tdee - User: test-user
+[2026-04-16 21:39:15] [main] [INFO] TDEE calculated for user test-user: {'Calories': 2468.4, 'Protein': 77.1, 'carb': 401.1, 'Fat': 61.7}
+[2026-04-16 21:39:15] [root] [INFO] RESPONSE: POST /tdee - Status: 200 - Time: 0.0ms
+[2026-04-16 21:39:15] [httpx] [INFO] HTTP Request: POST http://testserver/tdee "HTTP/1.1 200 OK"
+[2026-04-16 21:39:15] [root] [INFO] REQUEST: POST /recommend - User: test-user
+[2026-04-16 21:39:15] [main] [INFO] Menu recommended for user test-user
+[2026-04-16 21:39:15] [root] [INFO] RESPONSE: POST /recommend - Status: 200 - Time: 2.6504993438720703ms
+[2026-04-16 21:39:15] [httpx] [INFO] HTTP Request: POST http://testserver/recommend "HTTP/1.1 200 OK"
+[2026-04-16 21:42:26] [main] [INFO] Loading food dataset...
+[2026-04-16 21:42:26] [main] [INFO] Food items loaded: 423
+[2026-04-16 21:43:07] [main] [INFO] Loading food dataset...
+[2026-04-16 21:43:07] [main] [INFO] Food items loaded: 423
+[2026-04-16 21:47:31] [main] [INFO] Token requested for Firebase user: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-16 21:47:31] [auth] [INFO] Token created for user: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-16 21:47:31] [root] [INFO] REQUEST: POST /recommend - User: 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-16 21:47:31] [main] [INFO] Menu recommended for user 2OoeYkLvo1UgqS1Hvmy2ldgY8eD3
+[2026-04-16 21:47:31] [root] [INFO] RESPONSE: POST /recommend - Status: 200 - Time: 22.125959396362305ms
+[2026-04-21 19:37:21] [main] [INFO] Loading food dataset...
+[2026-04-21 19:37:21] [main] [INFO] Food items loaded: 423
+[2026-04-21 19:38:52] [main] [INFO] Loading food dataset...
+[2026-04-21 19:38:52] [main] [INFO] Food items loaded: 423
+2026-05-01 17:22:48,956 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 17:22:49,872 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 17:22:52,647 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 17:22:52,860 - smartmeal-api - INFO - Loading food dataset...
+2026-05-01 17:22:53,266 - smartmeal-api - INFO - Loading food dataset...
+2026-05-01 17:22:53,360 - smartmeal-api - INFO - Token requested for user: hakimthuy1707@gmail.com
+2026-05-01 17:22:53,386 - smartmeal-api - INFO - Recommend request received
+2026-05-01 17:22:56,405 - smartmeal-api - INFO - Loading food dataset...
+2026-05-01 17:23:33,876 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 17:23:34,692 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 17:23:37,580 - smartmeal-api - INFO - Loading food dataset...
+2026-05-01 17:23:38,450 - smartmeal-api - INFO - Loading food dataset...
+2026-05-01 19:32:33,802 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 19:32:52,724 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 19:33:48,270 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 19:35:49,660 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 19:36:03,137 - smartmeal-api - INFO - Caching enabled with TTL: 300s
