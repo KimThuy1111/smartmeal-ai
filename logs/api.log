@@ -98,3 +98,20 @@ TypeError: 'coroutine' object is not subscriptable
 [2026-04-21 19:37:21] [main] [INFO] Food items loaded: 423
 [2026-04-21 19:38:52] [main] [INFO] Loading food dataset...
 [2026-04-21 19:38:52] [main] [INFO] Food items loaded: 423
+2026-05-01 17:22:48,956 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 17:22:49,872 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 17:22:52,647 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 17:22:52,860 - smartmeal-api - INFO - Loading food dataset...
+2026-05-01 17:22:53,266 - smartmeal-api - INFO - Loading food dataset...
+2026-05-01 17:22:53,360 - smartmeal-api - INFO - Token requested for user: hakimthuy1707@gmail.com
+2026-05-01 17:22:53,386 - smartmeal-api - INFO - Recommend request received
+2026-05-01 17:22:56,405 - smartmeal-api - INFO - Loading food dataset...
+2026-05-01 17:23:33,876 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 17:23:34,692 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 17:23:37,580 - smartmeal-api - INFO - Loading food dataset...
+2026-05-01 17:23:38,450 - smartmeal-api - INFO - Loading food dataset...
+2026-05-01 19:32:33,802 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 19:32:52,724 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 19:33:48,270 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 19:35:49,660 - smartmeal-api - INFO - Caching enabled with TTL: 300s
+2026-05-01 19:36:03,137 - smartmeal-api - INFO - Caching enabled with TTL: 300s
