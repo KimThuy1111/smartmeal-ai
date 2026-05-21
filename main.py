@@ -34,7 +34,6 @@ db = firestore.client()
 
 
 # Cache layer
-
 food_cache = {}
 group_score_cache = {}
 training_cache = {}
@@ -62,7 +61,6 @@ class UserRequest(BaseModel):
 
 
 # Tạo cache key cho nhóm người dùng có đặc điểm tương tự
-# Nhóm những người có cân nặng, chiều cao, giới tính, hoạt động và mục tiêu tương tự
 def make_group_key(user):
     # Nhóm cân nặng (5kg một nhóm)
     weight_group = int(user.weight // 5) * 5
@@ -88,12 +86,12 @@ def make_group_key(user):
     ).hexdigest()
 
 
-# Kiểm tra cache có còn hợp lệ dựa trên thời gian
+# Kiểm tra tính hợp lệ của cache
 def is_cache_valid(item):
     return time.time() - item["time"] < CACHE_TTL
 
 
-# Load dữ liệu món ăn từ Firestore vào memor. Lấy calories, protein, carb, fat từ từng món
+# Load dữ liệu món ăn từ Firestore vào memory. Lấy calories, protein, carb, fat từ từng món
 def load_food_data():
     docs = db.collection("food").stream()
     X = []
@@ -210,14 +208,13 @@ def load_training_data():
 
 
 # Huấn luyện mô hình Logistic Regression để dự đoán món ăn được thích hay không
-
 def train_model():
     # Load dữ liệu huấn luyện
     X_train, y_train = load_training_data()
 
     # Kiểm tra nếu không đủ dữ liệu huấn luyện
     if len(X_train) == 0 or len(set(y_train)) < 2:
-        print("Không đủ data train → fallback")
+        print("Không đủ data train")
         return None, None
 
     # Chuẩn hóa dữ liệu
@@ -252,9 +249,7 @@ def lr_score(food):
     if model_lr is None:
         return 0
 
-    return model_lr.predict_proba(
-        scaler.transform([food])
-    )[0][1]
+    return model_lr.predict_proba(scaler.transform([food]))[0][1]
 
 
 
@@ -323,7 +318,7 @@ def who_tdee(user):
     else:
         bmr = 10 * user.weight + 6.25 * user.height - 5 * user.age - 161
 
-    # Hệ số hoạt động động (từ nhẹ nhất đến nặng nhất)
+    # Hệ số hoạt động 
     activity_map = {
         "ít vận động": 1.2,
         "vận động nhẹ": 1.375,
@@ -337,11 +332,28 @@ def who_tdee(user):
         user.activity.lower(),
         1.2
     )
+    # Điều chỉnh theo mục tiêu cân nặng
+    goal = user.goal.lower()
 
-    # Tỷ lệ macro nutrients (12.5% protein, 65% carb, 22.5% fat)
-    protein_ratio = 0.125
-    fat_ratio = 0.225
-    carb_ratio = 0.65
+    if goal == "giảm cân":
+        tdee -= 500
+
+        protein_ratio = 0.15
+        carb_ratio = 0.55
+        fat_ratio = 0.30
+
+    elif goal == "tăng cân":
+        tdee += 500
+
+        protein_ratio = 0.10
+        carb_ratio = 0.75
+        fat_ratio = 0.15
+
+    else:
+        # duy trì cân nặng
+        protein_ratio = 0.125
+        carb_ratio = 0.65
+        fat_ratio = 0.225
 
     return {
         "Calories": tdee,
@@ -350,17 +362,65 @@ def who_tdee(user):
         "Fat": tdee * fat_ratio / 9  # 1g fat = 9 kcal
     }
 
+# Hàm kiểm tra xem món ăn có phù hợp để gợi ý hay không dựa trên lượng dinh dưỡng còn thiếu 
+def is_valid_food(food, remain):
+    return (
+        food[0] > 0 and
+        food[1] > 0 and
+        food[0] <= remain[0] * 1.2 and
+        food[1] <= remain[1] * 1.5 and
+        food[3] <= remain[3] * 1.5
+    )
 
-# Hàm gợi ý món ăn cho bữa ăn 
-def recommend_meal(
-        target,
-        scored_foods,
-        recent_foods=None,
-        excluded_foods=None,
-        used=None
+# Hàm tính điểm dinh dưỡng dựa trên sự khác biệt giữa thành phần món ăn.
+def calculate_nutrition_score(food, remain):
+    diff = np.abs(remain - food)
+
+    cal_diff = diff[0] / max(remain[0], 1)
+    protein_diff = diff[1] / max(remain[1], 1)
+    carb_diff = diff[2] / max(remain[2], 1)
+    fat_diff = diff[3] / max(remain[3], 1)
+
+    return (
+        cal_diff * 0.45 +
+        protein_diff * 1.25 +
+        carb_diff * 0.8 +
+        fat_diff * 1.1
+    )
+
+# Tính điểm thưởng nếu món ăn thuộc loại yêu thích và điểm phạt nếu đã ăn gần đây
+def calculate_bonus_penalty(
+        stt,
+        recent_foods,
+        favorite_categories
 ):
+    category_bonus = 0
+    recent_penalty = 0
 
-    # Tính lượng dinh dưỡng còn lại cần cung cấp cho bữa ăn này
+    idx = np.where(food_stt == stt)[0]
+
+    if len(idx) > 0:
+        category = food_category[idx[0]]
+
+        if category in favorite_categories:
+            category_bonus = 0.25
+
+    if recent_foods and stt in recent_foods:
+        recent_penalty = 0.5
+
+    return category_bonus, recent_penalty
+
+def calculate_final_score(nutrition_score, recent_penalty, category_bonus, ml_score):
+    return (
+        nutrition_score +
+        recent_penalty -
+        category_bonus -
+        ml_score * 0.03
+    )
+
+# Hàm gợi ý món ăn cho từng bữa 
+def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None, used=None):
+
     remain = np.array([
         target["Calories"],
         target["Protein"],
@@ -368,7 +428,6 @@ def recommend_meal(
         target["Fat"]
     ])
 
-    # Những món cần loại trừ
     used = set(used or [])
 
     if excluded_foods:
@@ -376,102 +435,53 @@ def recommend_meal(
 
     selected = []
 
-    # 5.1 Lấy danh sách category (loại) những món ăn đã ăn gần đây
     favorite_categories = []
 
     if recent_foods:
         for food_id in recent_foods:
-            idx = np.where(
-                food_stt == food_id
-            )[0]
+            idx = np.where(food_stt == food_id)[0]
 
-            if len(idx) == 0:
-                continue
+            if len(idx) > 0:
+                favorite_categories.append(
+                    food_category[idx[0]]
+                )
 
-            favorite_categories.append(
-                food_category[idx[0]]
-            )
-
-    # 5.2 Chọn tối đa 4 món cho bữa ăn
     for _ in range(4):
-        best_score = float("inf")
+
         best_food = None
+        best_score = float("inf")
+
         for item in scored_foods:
+
             stt = item["stt"]
             food = item["food"]
 
-            # Bỏ qua những món đã dùng
             if stt in used:
                 continue
 
-            # Bỏ qua món có dữ liệu lỗi (0 hoặc âm)
-            if (
-                food[0] <= 0 or
-                food[1] <= 0
-            ):
+            if not is_valid_food(food, remain):
                 continue
 
-            # Bỏ qua nếu calories vượt quá 20% lượng cần
-            if food[0] > remain[0] * 1.2:
-                continue
-
-            # Bỏ qua nếu protein vượt quá 50% lượng cần
-            if food[1] > remain[1] * 1.5:
-                continue
-
-            # Bỏ qua nếu fat vượt quá 50% lượng cần
-            if food[3] > remain[3] * 1.5:
-                continue
-
-            # Tính độ lệch dinh dưỡng giữa món ăn và nhu cầu còn lại
-            diff = np.abs(
-                remain - food
+            nutrition_score = calculate_nutrition_score(
+                food,
+                remain
             )
 
-            # Chuẩn hóa độ lệch thành giá trị tương đối
-            cal_diff = diff[0] / max(remain[0], 1)
-            protein_diff = diff[1] / max(remain[1], 1)
-            carb_diff = diff[2] / max(remain[2], 1)
-            fat_diff = diff[3] / max(remain[3], 1)
-
-            # Tính điểm dinh dưỡng (Calories 45%, Protein 125%, Carb 80%, Fat 110%)
-            nutrition_score = (
-                cal_diff * 0.45 +
-                protein_diff * 1.25 +
-                carb_diff * 0.8 +
-                fat_diff * 1.1
+            category_bonus, recent_penalty = (
+                calculate_bonus_penalty(
+                    stt,
+                    recent_foods,
+                    favorite_categories
+                )
             )
 
-            # Ưu tiên những món cùng loại (category) với những món ăn gần đây
-            category_bonus = 0
-
-            idx = np.where(
-                food_stt == stt
-            )[0]
-
-            if len(idx) > 0:
-                category = food_category[idx[0]]
-                if category in favorite_categories:
-                    category_bonus = 0.25
-
-            # Tránh lặp lại các món gần đây
-            recent_penalty = 0
-
-            if (
-                recent_foods and
-                stt in recent_foods
-            ):
-                recent_penalty = 0.5
-
-            # Tính tổng điểm (sai số dinh dưỡng ít nhất là tốt)
-            score = (
-                nutrition_score +
-                recent_penalty -
-                category_bonus -
-                item["score"] * 0.03
+            score = calculate_final_score(
+                nutrition_score,
+                recent_penalty,
+                category_bonus,
+                item["score"]
             )
 
-            # Chọn món có điểm thấp nhất
             if score < best_score:
                 best_score = score
                 best_food = item
@@ -482,7 +492,6 @@ def recommend_meal(
         stt = best_food["stt"]
         food = best_food["food"]
 
-        # Thêm món đã chọn vào danh sách
         selected.append({
             "stt": stt,
             "calories": float(food[0])
@@ -490,16 +499,9 @@ def recommend_meal(
 
         used.add(stt)
 
-        # Cập nhật lượng dinh dưỡng còn lại sau khi chọn món này
         remain -= food
+        remain = np.maximum(remain, 0)
 
-        # Đảm bảo các giá trị không âm
-        remain = np.maximum(
-            remain,
-            0
-        )
-
-        # Dừng nếu gần đủ calories (chỉ còn dưới 80 kcal)
         if remain[0] <= 80:
             break
 
