@@ -33,8 +33,8 @@ app.add_middleware(
 firebase_json = os.getenv("FIREBASE_KEY")
 print("FIREBASE_KEY =", firebase_json)
 
-if not firebase_json:
-    raise Exception("FIREBASE_KEY not found in Railway Variables")
+# if not firebase_json:
+#     raise Exception("FIREBASE_KEY not found in Railway Variables")
 
 cred_dict = json.loads(firebase_json)
 
