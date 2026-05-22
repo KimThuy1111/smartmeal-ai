@@ -411,7 +411,7 @@ def calculate_group_scores(user):
 # Hàm tính TDEE và nhu cầu dinh dưỡng hàng ngày dựa trên thông tin người dùng
 
 @app.post("/tdee")
-def who_tdee(user):
+def who_tdee(user: UserRequest):
     # Tính BMR dựa trên giới tính
     if user.gender.lower() == "nam":
         bmr = 10 * user.weight + 6.25 * user.height - 5 * user.age + 5
