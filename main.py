@@ -31,11 +31,14 @@ app.add_middleware(
 # Kết nối Firebase
 # cred = credentials.Certificate("firebase_key.json")
 firebase_json = os.getenv("FIREBASE_KEY")
+print("FIREBASE_KEY =", firebase_json)
+
+if not firebase_json:
+    raise Exception("FIREBASE_KEY not found in Railway Variables")
 
 cred_dict = json.loads(firebase_json)
 
 cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
-
 cred = credentials.Certificate(cred_dict)
 
 firebase_admin.initialize_app(cred)
