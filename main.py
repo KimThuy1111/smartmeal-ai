@@ -6,6 +6,7 @@ import numpy as np
 import time
 import hashlib
 import json
+import os
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import NearestNeighbors
@@ -28,7 +29,13 @@ app.add_middleware(
 )
 
 # Kết nối Firebase
-cred = credentials.Certificate("firebase_key.json")
+# cred = credentials.Certificate("firebase_key.json")
+firebase_json = os.getenv("FIREBASE_KEY")
+
+cred_dict = json.loads(firebase_json)
+
+cred = credentials.Certificate(cred_dict)
+
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
