@@ -54,12 +54,14 @@ try:
         firebase_base64 = os.getenv(
             "FIREBASE_KEY_BASE64"
         )
+        print("BASE64 =", firebase_base64)
 
         if firebase_base64:
 
             firebase_json = base64.b64decode(
                 firebase_base64
             ).decode("utf-8")
+            print(firebase_json[:100])
 
             cred_dict = json.loads(firebase_json)
 
