@@ -7,6 +7,7 @@ import time
 import hashlib
 import json
 import os
+import base64
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import NearestNeighbors
@@ -32,27 +33,53 @@ app.add_middleware(
 # cred = credentials.Certificate("firebase_key.json")
 db = None
 
-firebase_json = os.getenv("FIREBASE_KEY")
+try:
 
-print("FIREBASE_KEY =", firebase_json)
+    # LOCAL
+    if os.path.exists("firebase_key.json"):
 
-if firebase_json:
+        cred = credentials.Certificate(
+            "firebase_key.json"
+        )
 
-    cred_dict = json.loads(firebase_json)
+        firebase_admin.initialize_app(cred)
 
-    cred_dict["private_key"] = (
-        cred_dict["private_key"]
-        .replace("\\n", "\n")
-    )
+        db = firestore.client()
 
-    cred = credentials.Certificate(cred_dict)
+        print("Firebase LOCAL connected")
 
-    firebase_admin.initialize_app(cred)
+    # RAILWAY
+    else:
 
-    db = firestore.client()
+        firebase_base64 = os.getenv(
+            "FIREBASE_KEY_BASE64"
+        )
 
-else:
-    print("Firebase not initialized")
+        if firebase_base64:
+
+            firebase_json = base64.b64decode(
+                firebase_base64
+            ).decode("utf-8")
+
+            cred_dict = json.loads(firebase_json)
+
+            cred = credentials.Certificate(
+                cred_dict
+            )
+
+            firebase_admin.initialize_app(
+                cred
+            )
+
+            db = firestore.client()
+
+            print("Firebase RAILWAY connected")
+
+        else:
+            print("Firebase ENV missing")
+
+except Exception as e:
+    print("Firebase init error:", e)
 
 
 # Cache layer
@@ -673,3 +700,14 @@ async def recommend(user: UserRequest):
         return {
             "error": str(e)
         }
+@app.get("/test-firebase")
+def test_firebase():
+
+    docs = db.collection("food").limit(1).stream()
+
+    result = []
+
+    for doc in docs:
+        result.append(doc.to_dict())
+
+    return result
