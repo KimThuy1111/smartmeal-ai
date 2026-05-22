@@ -49,6 +49,53 @@ training_cache = {}
 
 CACHE_TTL = 300
 
+X_food = None
+food_stt = None
+food_category = None
+
+model_lr = None
+scaler = None
+
+knn = None
+knn_scores_cache = None
+
+initialized = False
+
+def initialize_models():
+    global X_food
+    global food_stt
+    global food_category
+    global model_lr
+    global scaler
+    global knn
+    global knn_scores_cache
+    global initialized
+
+    if initialized:
+        return
+
+    print("Loading food data...")
+
+    X_food, food_stt, food_category = load_food_data()
+
+    print("Training model...")
+
+    model_lr, scaler = train_model()
+
+    print("Initializing KNN...")
+
+    knn = NearestNeighbors(n_neighbors=5)
+    knn.fit(X_food)
+
+    distances, _ = knn.kneighbors(X_food)
+
+    knn_scores_cache = 1 / (
+        1 + distances.mean(axis=1)
+    )
+
+    initialized = True
+
+    print("Initialization complete")
 
 # Request model
 class UserRequest(BaseModel):
@@ -125,7 +172,7 @@ def load_food_data():
 
     return np.array(X), np.array(stt_list), np.array(category_list)
 
-X_food, food_stt, food_category = load_food_data()
+# X_food, food_stt, food_category = load_food_data()
 
 # Load dữ liệu huấn luyện từ FirestoreFirestore. Lấy dữ liệu từ suggested_menus (thực đơn gợi ý) và food_diary (nhật ký ăn)
 def load_training_data():
@@ -239,18 +286,18 @@ def train_model():
     return model, scaler
 
 
-model_lr, scaler = train_model()
+# model_lr, scaler = train_model()
 
 
-# Huấn luyện mô hình KNN để tìm những món ăn tương tự. Tính toán khoảng cách giữa các món ăn dựa trên thành phần dinh dưỡng
-knn = NearestNeighbors(n_neighbors=5)
-knn.fit(X_food)
+# # Huấn luyện mô hình KNN để tìm những món ăn tương tự. Tính toán khoảng cách giữa các món ăn dựa trên thành phần dinh dưỡng
+# knn = NearestNeighbors(n_neighbors=5)
+# knn.fit(X_food)
 
-# Tính điểm tương tự dựa trên khoảng cách trung bình đến 5 hàng xóm gần nhất
-distances, _ = knn.kneighbors(X_food)
-knn_scores_cache = 1 / (
-    1 + distances.mean(axis=1)
-)
+# # Tính điểm tương tự dựa trên khoảng cách trung bình đến 5 hàng xóm gần nhất
+# distances, _ = knn.kneighbors(X_food)
+# knn_scores_cache = 1 / (
+#     1 + distances.mean(axis=1)
+# )
 
 
 # Hàm tính điểm ML cho món ăn dựa trên mô hình Logistic Regression. Dự đoán xác suất người dùng sẽ thích món ăn này
@@ -596,6 +643,9 @@ def daily_plan(user):
 # Nhận thông tin người dùng từ Flutter và trả về thực đơn gợi ý
 @app.post("/recommend")
 async def recommend(user: UserRequest):
+    if not initialized:
+        initialize_models()
+
     # Trả về kết quả dưới dạng JSON
     result = {
         "menu": daily_plan(user)
