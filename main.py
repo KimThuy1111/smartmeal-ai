@@ -30,6 +30,8 @@ app.add_middleware(
 
 # Kết nối Firebase
 # cred = credentials.Certificate("firebase_key.json")
+db = None
+
 firebase_json = os.getenv("FIREBASE_KEY")
 
 print("FIREBASE_KEY =", firebase_json)
@@ -160,6 +162,8 @@ def is_cache_valid(item):
 
 # Load dữ liệu món ăn từ Firestore vào memory. Lấy calories, protein, carb, fat từ từng món
 def load_food_data():
+    if db is None:
+        raise Exception("Firestore database not initialized")
     docs = db.collection("food").stream()
     X = []
     stt_list = []
