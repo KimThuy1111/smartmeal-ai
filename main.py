@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import base64
+import random
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import NearestNeighbors
@@ -120,24 +121,28 @@ def initialize_models():
 
     X_food, food_stt, food_category = load_food_data()
 
-    print("Training model...")
-
     model_lr, scaler = train_model()
 
-    print("Initializing KNN...")
-
-    knn = NearestNeighbors(n_neighbors=5)
-    knn.fit(X_food)
-
-    distances, _ = knn.kneighbors(X_food)
-
-    knn_scores_cache = 1 / (
-        1 + distances.mean(axis=1)
-    )
+    knn, knn_scores_cache = train_knn(X_food)
 
     initialized = True
 
-    print("Initialization complete")
+# Huấn luyện mô hình KNN để tìm các món ăn tương tự
+def train_knn(X_food):
+
+    # Khởi tạo mô hình với 5 hàng xóm gần nhất
+    knn = NearestNeighbors(n_neighbors=5)
+
+    # Huấn luyện mô hình trên dữ liệu món ăn
+    knn.fit(X_food)
+
+    # Tính khoảng cách giữa các món ăn
+    distances, _ = knn.kneighbors(X_food)
+
+    # Tính điểm tương đồng
+    similarity_scores = 1 / (1 + distances.mean(axis=1))
+
+    return knn, similarity_scores
 
 # Request model
 class UserRequest(BaseModel):
@@ -409,7 +414,6 @@ def calculate_group_scores(user):
 
 
 # Hàm tính TDEE và nhu cầu dinh dưỡng hàng ngày dựa trên thông tin người dùng
-
 @app.post("/tdee")
 def who_tdee(user: UserRequest):
     # Tính BMR dựa trên giới tính
@@ -428,23 +432,19 @@ def who_tdee(user: UserRequest):
     }
 
     # Tính TDEE = BMR * hệ số hoạt động
-    tdee = bmr * activity_map.get(
-        user.activity.lower(),
-        1.2
-    )
+    tdee = bmr * activity_map.get(user.activity.lower(), 1.2)
+
     # Điều chỉnh theo mục tiêu cân nặng
     goal = user.goal.lower()
 
     if goal == "giảm cân":
         tdee -= 500
-
         protein_ratio = 0.15
         carb_ratio = 0.55
         fat_ratio = 0.30
 
     elif goal == "tăng cân":
         tdee += 500
-
         protein_ratio = 0.10
         carb_ratio = 0.75
         fat_ratio = 0.15
@@ -520,115 +520,111 @@ def calculate_final_score(nutrition_score, recent_penalty, category_bonus, ml_sc
 
 # Hàm gợi ý món ăn cho từng bữa 
 def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None, used=None):
-
-    remain = np.array([
-        target["Calories"],
-        target["Protein"],
-        target["carb"],
-        target["Fat"]
-    ])
-
+    remain = np.array([target["Calories"], target["Protein"], target["carb"], target["Fat"]])
     used = set(used or [])
-
+    
+    #Lưu các món đã được chọn để tránh gợi ý lại
     if excluded_foods:
         used.update(excluded_foods)
-
     selected = []
-
     favorite_categories = []
 
+    # Xác định các loại món ăn yêu thích dựa trên những món đã ăn gần đây
     if recent_foods:
         for food_id in recent_foods:
             idx = np.where(food_stt == food_id)[0]
 
             if len(idx) > 0:
-                favorite_categories.append(
-                    food_category[idx[0]]
-                )
+                favorite_categories.append(food_category[idx[0]])
+    
+    # Chọn tối đa 4 món cho 1 bữa
+    # Chọn tối đa 4 món cho 1 bữa
+for index in range(4):
 
-    for _ in range(4):
+    candidates = []
 
-        best_food = None
-        best_score = float("inf")
+    for item in scored_foods:
 
-        for item in scored_foods:
+        stt = item["stt"]
+        food = item["food"]
 
-            stt = item["stt"]
-            food = item["food"]
+        if stt in used:
+            continue
 
-            if stt in used:
-                continue
+        if not is_valid_food(food, remain):
+            continue
 
-            if not is_valid_food(food, remain):
-                continue
+        nutrition_score = calculate_nutrition_score(
+            food,
+            remain
+        )
 
-            nutrition_score = calculate_nutrition_score(
-                food,
-                remain
+        category_bonus, recent_penalty = (
+            calculate_bonus_penalty(
+                stt,
+                recent_foods,
+                favorite_categories
             )
+        )
 
-            category_bonus, recent_penalty = (
-                calculate_bonus_penalty(
-                    stt,
-                    recent_foods,
-                    favorite_categories
-                )
-            )
+        score = calculate_final_score(
+            nutrition_score,
+            recent_penalty,
+            category_bonus,
+            item["score"]
+        )
 
-            score = calculate_final_score(
-                nutrition_score,
-                recent_penalty,
-                category_bonus,
-                item["score"]
-            )
-
-            if score < best_score:
-                best_score = score
-                best_food = item
-
-        if best_food is None:
-            break
-
-        stt = best_food["stt"]
-        food = best_food["food"]
-
-        selected.append({
-            "stt": stt,
-            "calories": float(food[0])
+        candidates.append({
+            "item": item,
+            "score": score
         })
 
-        used.add(stt)
+    # Không còn món phù hợp
+    if not candidates:
+        break
 
-        remain -= food
-        remain = np.maximum(remain, 0)
+    # Sắp xếp theo score tăng dần
+    candidates.sort(
+        key=lambda x: x["score"]
+    )
 
-        if remain[0] <= 80:
-            break
+    # MÓN ĐẦU TIÊN:
+    # Chọn random trong top 5 AI tốt nhất
+    if index == 0:
 
-    return selected
+        top_candidates = candidates[:5]
+
+        chosen = random.choice(
+            top_candidates
+        )
+
+        best_food = chosen["item"]
+
+    # CÁC MÓN SAU:
+    # Random đa dạng hơn
+    else:
+
+        # Lấy các món không quá tệ
+        diverse_candidates = candidates[:20]
+
+        chosen = random.choice(
+            diverse_candidates
+        )
+
+        best_food = chosen["item"]
 
 
-# 3. Hàm gợi ý thực đơn hàng ngày (breakfast, lunch, dinner). Tính toán nhu cầu dinh dưỡng cho từng bữa dựa trên TDEE
+# Hàm gợi ý thực đơn hàng ngày (sáng, trưa, tối). Tính toán nhu cầu dinh dưỡng cho từng bữa dựa trên TDEE
 def daily_plan(user):
-    # 3.1 Tính nhu cầu dinh dưỡng hàng ngày
+    # Tính nhu cầu dinh dưỡng hàng ngày
     nutrition = who_tdee(user)
 
     # Lượng calories đã tiêu thụ trong ngày theo từng bữa
-    eaten = {
-        "Breakfast": user.breakfast_cal,
-        "Lunch": user.lunch_cal,
-        "Dinner": user.dinner_cal
-    }
+    eaten = {"Breakfast": user.breakfast_cal, "Lunch": user.lunch_cal, "Dinner": user.dinner_cal}
 
     # Tỷ lệ calo phân bổ cho từng bữa. Breakfast 30%, Lunch 40%, Dinner 30%
-    ratios = {
-        "Breakfast": 0.3,
-        "Lunch": 0.4,
-        "Dinner": 0.3
-    }
-
+    ratios = {"Breakfast": 0.3, "Lunch": 0.4, "Dinner": 0.3}
     meals = {}
-
     used = set()
 
     # Lấy danh sách các món ăn theo nhóm người dùng
@@ -644,31 +640,15 @@ def daily_plan(user):
             continue
 
         # Tính tỷ lệ dinh dưỡng còn lại cần cung cấp cho bữa này
-        ratio_remain = (
-            target - eaten[meal]
-        ) / target
+        ratio_remain = (target - eaten[meal]) / target
 
-        # Lấy 4 món gợi ý cho bữa này
+        # Lấy các món gợi ý cho từng bữa
         meals[meal] = recommend_meal(
             target={
-                "Calories":
-                    nutrition["Calories"] *
-                    r *
-                    ratio_remain,
-                "Protein":
-                    nutrition["Protein"] *
-                    r *
-                    ratio_remain,
-
-                "carb":
-                    nutrition["carb"] *
-                    r *
-                    ratio_remain,
-
-                "Fat":
-                    nutrition["Fat"] *
-                    r *
-                    ratio_remain
+                "Calories": nutrition["Calories"] * r * ratio_remain,
+                "Protein": nutrition["Protein"] * r * ratio_remain,
+                "carb": nutrition["carb"] * r * ratio_remain,
+                "Fat": nutrition["Fat"] * r * ratio_remain
             },
             scored_foods=scored_foods,
             recent_foods=user.recent_foods,
