@@ -539,79 +539,80 @@ def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None,
     
     # Chọn tối đa 4 món cho 1 bữa
     # Chọn tối đa 4 món cho 1 bữa
-for index in range(4):
+    for index in range(4):
 
-    candidates = []
+        candidates = []
 
-    for item in scored_foods:
+        for item in scored_foods:
 
-        stt = item["stt"]
-        food = item["food"]
+            stt = item["stt"]
+            food = item["food"]
 
-        if stt in used:
-            continue
+            if stt in used:
+                continue
 
-        if not is_valid_food(food, remain):
-            continue
+            if not is_valid_food(food, remain):
+                continue
 
-        nutrition_score = calculate_nutrition_score(
-            food,
-            remain
-        )
-
-        category_bonus, recent_penalty = (
-            calculate_bonus_penalty(
-                stt,
-                recent_foods,
-                favorite_categories
+            nutrition_score = calculate_nutrition_score(
+                food,
+                remain
             )
+
+            category_bonus, recent_penalty = (
+                calculate_bonus_penalty(
+                    stt,
+                    recent_foods,
+                    favorite_categories
+                )
+            )
+
+            score = calculate_final_score(
+                nutrition_score,
+                recent_penalty,
+                category_bonus,
+                item["score"]
+            )
+
+            candidates.append({
+                "item": item,
+                "score": score
+            })
+
+        # Không còn món phù hợp
+        if not candidates:
+            break
+
+        # Sắp xếp theo score tăng dần
+        candidates.sort(
+            key=lambda x: x["score"]
         )
 
-        score = calculate_final_score(
-            nutrition_score,
-            recent_penalty,
-            category_bonus,
-            item["score"]
-        )
+        # MÓN ĐẦU TIÊN:
+        # Chọn random trong top 5 AI tốt nhất
+        if index == 0:
 
-        candidates.append({
-            "item": item,
-            "score": score
-        })
+            top_candidates = candidates[:5]
 
-    # Không còn món phù hợp
-    if not candidates:
-        break
+            chosen = random.choice(
+                top_candidates
+            )
 
-    # Sắp xếp theo score tăng dần
-    candidates.sort(
-        key=lambda x: x["score"]
-    )
+            best_food = chosen["item"]
 
-    # MÓN ĐẦU TIÊN:
-    # Chọn random trong top 5 AI tốt nhất
-    if index == 0:
+        # CÁC MÓN SAU:
+        # Random đa dạng hơn
+        else:
 
-        top_candidates = candidates[:5]
+            # Lấy các món không quá tệ
+            diverse_candidates = candidates[:20]
 
-        chosen = random.choice(
-            top_candidates
-        )
+            chosen = random.choice(
+                diverse_candidates
+            )
 
-        best_food = chosen["item"]
-
-    # CÁC MÓN SAU:
-    # Random đa dạng hơn
-    else:
-
-        # Lấy các món không quá tệ
-        diverse_candidates = candidates[:20]
-
-        chosen = random.choice(
-            diverse_candidates
-        )
-
-        best_food = chosen["item"]
+            best_food = chosen["item"]
+    return selected
 
 
 # Hàm gợi ý thực đơn hàng ngày (sáng, trưa, tối). Tính toán nhu cầu dinh dưỡng cho từng bữa dựa trên TDEE
