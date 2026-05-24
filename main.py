@@ -8,7 +8,6 @@ import hashlib
 import json
 import os
 import base64
-import random
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import NearestNeighbors
@@ -538,13 +537,10 @@ def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None,
                 favorite_categories.append(food_category[idx[0]])
     
     # Chọn tối đa 4 món cho 1 bữa
-    # Chọn tối đa 4 món cho 1 bữa
-    for index in range(4):
-
-        candidates = []
-
+    for _ in range(4):
+        best_food = None
+        best_score = float("inf")
         for item in scored_foods:
-
             stt = item["stt"]
             food = item["food"]
 
@@ -553,65 +549,24 @@ def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None,
 
             if not is_valid_food(food, remain):
                 continue
+            nutrition_score = calculate_nutrition_score(food, remain)
+            category_bonus, recent_penalty = (calculate_bonus_penalty(stt, recent_foods, favorite_categories))
+            score = calculate_final_score(nutrition_score, recent_penalty, category_bonus, item["score"])
 
-            nutrition_score = calculate_nutrition_score(
-                food,
-                remain
-            )
+            if score < best_score:
+                best_score = score
+                best_food = item
 
-            category_bonus, recent_penalty = (
-                calculate_bonus_penalty(
-                    stt,
-                    recent_foods,
-                    favorite_categories
-                )
-            )
-
-            score = calculate_final_score(
-                nutrition_score,
-                recent_penalty,
-                category_bonus,
-                item["score"]
-            )
-
-            candidates.append({
-                "item": item,
-                "score": score
-            })
-
-        # Không còn món phù hợp
-        if not candidates:
+        if best_food is None:
             break
-
-        # Sắp xếp theo score tăng dần
-        candidates.sort(
-            key=lambda x: x["score"]
-        )
-
-        # MÓN ĐẦU TIÊN:
-        # Chọn random trong top 5 AI tốt nhất
-        if index == 0:
-
-            top_candidates = candidates[:5]
-
-            chosen = random.choice(
-                top_candidates
-            )
-
-            best_food = chosen["item"]
-
-        # CÁC MÓN SAU:
-        # Random đa dạng hơn
-        else:
-
-            # Lấy các món không quá tệ
-            diverse_candidates = candidates[:20]
-
-            chosen = random.choice(
-                diverse_candidates
-            )
-
-            best_food = chosen["item"]
+        stt = best_food["stt"]
+        food = best_food["food"]
+        selected.append({"stt": stt, "calories": float(food[0])})
+        used.add(stt)
+        remain -= food
+        remain = np.maximum(remain, 0)
+        if remain[0] <= 80:
+            break
     return selected
 
 
