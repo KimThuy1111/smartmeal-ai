@@ -473,6 +473,7 @@ def is_valid_food(food, remain):
 
 # Hàm tính điểm dinh dưỡng dựa trên sự khác biệt giữa thành phần món ăn.
 def calculate_nutrition_score(food, remain):
+
     diff = np.abs(remain - food)
 
     cal_diff = diff[0] / max(remain[0], 1)
@@ -480,11 +481,13 @@ def calculate_nutrition_score(food, remain):
     carb_diff = diff[2] / max(remain[2], 1)
     fat_diff = diff[3] / max(remain[3], 1)
 
+    # calories là ưu tiên chính
+
     return (
-        cal_diff * 0.45 +
-        protein_diff * 1.25 +
-        carb_diff * 0.8 +
-        fat_diff * 1.1
+        cal_diff * 3.5 +
+        protein_diff * 1.5 +
+        carb_diff * 1.2 +
+        fat_diff * 1.0
     )
 
 # Tính điểm thưởng nếu món ăn thuộc loại yêu thích và điểm phạt nếu đã ăn gần đây
@@ -505,20 +508,31 @@ def calculate_bonus_penalty(
             category_bonus = 0.25
 
     if recent_foods and stt in recent_foods:
-        recent_penalty = 0.5
+        recent_penalty = 0.15
 
     return category_bonus, recent_penalty
 
-def calculate_final_score(nutrition_score, recent_penalty, category_bonus, ml_score):
+def calculate_final_score(
+        nutrition_score,
+        recent_penalty,
+        category_bonus,
+        ml_score
+):
+
+    # nutrition là chính
+    # ML chỉ ưu tiên nhẹ
+
     return (
         nutrition_score +
-        recent_penalty -
-        category_bonus -
-        ml_score * 0.03
+        recent_penalty * 0.2 -
+        category_bonus * 0.15 -
+        ml_score * 0.05
     )
 
 # Hàm gợi ý món ăn cho từng bữa 
 def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None, used=None):
+    recent_foods = recent_foods or []
+    excluded_foods = excluded_foods or []
     remain = np.array([target["Calories"], target["Protein"], target["carb"], target["Fat"]])
     used = set(used or [])
     
@@ -527,6 +541,9 @@ def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None,
         used.update(excluded_foods)
     selected = []
     favorite_categories = []
+    
+    if recent_foods is None:
+        recent_foods = []
 
     # Xác định các loại món ăn yêu thích dựa trên những món đã ăn gần đây
     if recent_foods:
@@ -549,6 +566,12 @@ def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None,
 
             if not is_valid_food(food, remain):
                 continue
+            # bỏ món lệch calories quá nhiều
+
+            cal_ratio = food[0] / max(remain[0], 1)
+
+            if cal_ratio < 0.25 or cal_ratio > 1.1:
+                continue
             nutrition_score = calculate_nutrition_score(food, remain)
             category_bonus, recent_penalty = (calculate_bonus_penalty(stt, recent_foods, favorite_categories))
             score = calculate_final_score(nutrition_score, recent_penalty, category_bonus, item["score"])
@@ -567,6 +590,7 @@ def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None,
         remain = np.maximum(remain, 0)
         if remain[0] <= 80:
             break
+        
     return selected
 
 
