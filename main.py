@@ -630,3 +630,21 @@ def daily_plan(user):
     return meals
 
 
+# Nhận thông tin người dùng từ Flutter và trả về thực đơn gợi ý
+@app.post("/recommend")
+async def recommend(user: UserRequest):
+
+    try:
+        if not initialized:
+            initialize_models()
+
+        result = {
+            "menu": daily_plan(user)
+        }
+
+        return result
+
+    except Exception as e:
+        return {
+            "error": str(e)
+        }
