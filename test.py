@@ -19,10 +19,7 @@ X_food = main.X_food
 food_stt = main.food_stt
 
 
-# =========================
 # TÍNH TỔNG DINH DƯỠNG MENU
-# =========================
-
 def calculate_menu_total(menu):
 
     total = {
@@ -53,10 +50,8 @@ def calculate_menu_total(menu):
     return total
 
 
-# =========================
-# LOAD USER FIREBASE
-# =========================
 
+# LOAD USER FIREBASE
 def load_firebase_users():
 
     users = []
@@ -102,169 +97,6 @@ def load_firebase_users():
 
     return users
 
-
-# =========================
-# LOAD NUTRITION CSV
-# =========================
-
-def load_nutrition_users():
-
-    df = pd.read_csv("nutrition.csv")
-
-    users = []
-
-    for _, row in df.iterrows():
-
-        try:
-
-            # =====================
-            # AGE
-            # =====================
-
-            age = int(
-                row.get("Age", 25)
-            )
-
-            if age < 15 or age > 70:
-                continue
-
-            # =====================
-            # GENDER
-            # =====================
-
-            gender_raw = str(
-                row.get("Gender", "Male")
-            ).lower()
-
-            gender = (
-                "nam"
-                if "male" in gender_raw
-                else "nữ"
-            )
-
-            # =====================
-            # HEIGHT
-            # =====================
-
-            height = float(
-                row.get("Height", 165)
-            )
-
-            if height < 140 or height > 210:
-                continue
-
-            # =====================
-            # WEIGHT
-            # =====================
-
-            weight = float(
-                row.get("Weight", 60)
-            )
-            # =====================
-            # BMI FILTER
-            # =====================
-
-            bmi = weight / ((height / 100) ** 2)
-
-            # bỏ user quá gầy hoặc quá béo
-
-            if bmi < 16 or bmi > 35:
-                continue
-
-            if weight < 35 or weight > 180:
-                continue
-            
-            # =====================
-            # ACTIVITY
-            # =====================
-
-            activity_raw = str(
-                row.get("ActivityLevel", "")
-            ).lower()
-
-            if (
-                "sedentary" in activity_raw
-            ):
-                activity = "ít vận động"
-
-            elif (
-                "light" in activity_raw
-            ):
-                activity = "vận động nhẹ"
-
-            elif (
-                "moderate" in activity_raw
-            ):
-                activity = "vận động vừa"
-
-            elif (
-                "very active" in activity_raw or
-                "high" in activity_raw
-            ):
-                activity = "vận động nhiều"
-
-            else:
-                activity = "vận động vừa"
-
-            # =====================
-            # GOAL
-            # =====================
-
-            disease = str(
-                row.get("Disease", "")
-            ).lower()
-
-            goal = "duy trì"
-
-            if (
-                "obesity" in disease or
-                "weight loss" in disease or
-                "diabetes" in disease or
-                "fat" in disease
-            ):
-                goal = "giảm cân"
-
-            elif (
-                "underweight" in disease or
-                "gain" in disease or
-                "thin" in disease
-            ):
-                goal = "tăng cân"
-
-            # =====================
-            # USER
-            # =====================
-
-            user = UserRequest(
-
-                age=age,
-                gender=gender,
-
-                height=height,
-                weight=weight,
-
-                activity=activity,
-                goal=goal,
-
-                breakfast_cal=0,
-                lunch_cal=0,
-                dinner_cal=0,
-
-                recent_foods=[],
-                excluded_foods=[]
-            )
-
-            users.append(user)
-
-        except:
-            continue
-
-    return users
-
-
-# =========================
-# EVALUATE
-# =========================
 
 def evaluate_users(users, title):
 
@@ -373,10 +205,8 @@ def evaluate_users(users, title):
     print("Total Tested Users:", tested_users)
 
 
-# =========================
-# TEST FIREBASE
-# =========================
 
+# TEST FIREBASE
 def test_firebase_users():
 
     users = load_firebase_users()
@@ -387,26 +217,6 @@ def test_firebase_users():
     )
 
 
-# =========================
-# TEST NUTRITION CSV
-# =========================
-
-def test_nutrition_users():
-
-    users = load_nutrition_users()
-
-    evaluate_users(
-        users,
-        "NUTRITION CSV RESULT"
-    )
-
-
-# =========================
-# RUN TEST
-# =========================
-
 if __name__ == "__main__":
 
     test_firebase_users()
-
-    test_nutrition_users()

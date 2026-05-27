@@ -334,20 +334,6 @@ def train_model():
     return model, scaler
 
 
-# model_lr, scaler = train_model()
-
-
-# # Huấn luyện mô hình KNN để tìm những món ăn tương tự. Tính toán khoảng cách giữa các món ăn dựa trên thành phần dinh dưỡng
-# knn = NearestNeighbors(n_neighbors=5)
-# knn.fit(X_food)
-
-# # Tính điểm tương tự dựa trên khoảng cách trung bình đến 5 hàng xóm gần nhất
-# distances, _ = knn.kneighbors(X_food)
-# knn_scores_cache = 1 / (
-#     1 + distances.mean(axis=1)
-# )
-
-
 # Hàm tính điểm ML cho món ăn dựa trên mô hình Logistic Regression. Dự đoán xác suất người dùng sẽ thích món ăn này
 def lr_score(food):
     if model_lr is None:
@@ -566,8 +552,8 @@ def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None,
 
             if not is_valid_food(food, remain):
                 continue
+            
             # bỏ món lệch calories quá nhiều
-
             cal_ratio = food[0] / max(remain[0], 1)
 
             if cal_ratio < 0.25 or cal_ratio > 1.1:
@@ -644,32 +630,3 @@ def daily_plan(user):
     return meals
 
 
-# Nhận thông tin người dùng từ Flutter và trả về thực đơn gợi ý
-@app.post("/recommend")
-async def recommend(user: UserRequest):
-
-    try:
-        if not initialized:
-            initialize_models()
-
-        result = {
-            "menu": daily_plan(user)
-        }
-
-        return result
-
-    except Exception as e:
-        return {
-            "error": str(e)
-        }
-@app.get("/test-firebase")
-def test_firebase():
-
-    docs = db.collection("food").limit(1).stream()
-
-    result = []
-
-    for doc in docs:
-        result.append(doc.to_dict())
-
-    return result
