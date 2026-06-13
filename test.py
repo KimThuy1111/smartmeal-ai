@@ -1,17 +1,18 @@
-import numpy as np
 import pandas as pd
-import main
+import numpy as np
 
 from prettytable import PrettyTable
-from sklearn.metrics import mean_squared_error, r2_score
+
+import main
 
 from main import (
-    db,
     UserRequest,
-    daily_plan,
+    initialize_models,
     who_tdee,
-    initialize_models
+    daily_plan
 )
+
+# Khởi tạo mô hình
 
 initialize_models()
 
@@ -19,7 +20,8 @@ X_food = main.X_food
 food_stt = main.food_stt
 
 
-# TÍNH TỔNG DINH DƯỠNG MENU
+# Tính tổng dinh dưỡng của thực đơn được gợi ý
+
 def calculate_menu_total(menu):
 
     total = {
@@ -29,7 +31,7 @@ def calculate_menu_total(menu):
         "Fat": 0
     }
 
-    for _, foods in menu.items():
+    for meal_name, foods in menu.items():
 
         for item in foods:
 
@@ -42,181 +44,297 @@ def calculate_menu_total(menu):
 
             food = X_food[idx[0]]
 
-            total["Calories"] += food[0]
-            total["Protein"] += food[1]
-            total["carb"] += food[2]
-            total["Fat"] += food[3]
+            total["Calories"] += float(food[0])
+            total["Protein"] += float(food[1])
+            total["carb"] += float(food[2])
+            total["Fat"] += float(food[3])
 
     return total
 
 
+# Chuyển mục tiêu cân nặng từ cột Disease
 
-# LOAD USER FIREBASE
-def load_firebase_users():
+def get_goal(disease):
+
+    if pd.isna(disease):
+        return "duy trì"
+
+    disease = str(disease).lower()
+
+    if "weight gain" in disease:
+        return "tăng cân"
+
+    if "weight loss" in disease:
+        return "giảm cân"
+
+    return "duy trì"
+
+
+# Chuyển giới tính từ dataset sang hệ thống
+
+def map_gender(gender):
+
+    gender = str(gender).strip().lower()
+
+    if gender == "male":
+        return "nam"
+
+    return "nữ"
+
+
+# Chuyển mức vận động từ dataset sang hệ thống
+
+def map_activity(activity):
+
+    activity = str(activity).strip().lower()
+
+    mapping = {
+        "sedentary": "ít vận động",
+        "lightly active": "vận động nhẹ",
+        "moderately active": "vận động vừa",
+        "very active": "vận động nhiều",
+        "extremely active": "vận động cực nhiều"
+    }
+
+    return mapping.get(
+        activity,
+        "vận động vừa"
+    )
+
+
+# Đọc dữ liệu người dùng từ file csv
+
+def load_users_from_csv(csv_path):
+
+    df = pd.read_csv(csv_path)
 
     users = []
 
-    users_ref = db.collection("users").stream()
-
-    for doc in users_ref:
-
-        data = doc.to_dict()
+    for _, row in df.iterrows():
 
         try:
 
-            if (
-                "age" not in data or
-                "gender" not in data or
-                "height" not in data or
-                "weight" not in data or
-                "activity" not in data
-            ):
-                continue
-
             user = UserRequest(
-                age=int(data["age"]),
-                gender=data["gender"],
-                height=float(data["height"]),
-                weight=float(data["weight"]),
-                activity=data["activity"],
-                goal=data.get("goal", "duy trì"),
-
+                age=int(row["Ages"]),
+                gender=map_gender(row["Gender"]),
+                height=float(row["Height"]),
+                weight=float(row["Weight"]),
+                activity=map_activity(
+                    row["Activity Level"]
+                ),
+                goal=get_goal(
+                    row["Disease"]
+                ),
                 breakfast_cal=0,
                 lunch_cal=0,
                 dinner_cal=0,
-
-                recent_foods=data.get("recent_foods") or [],
-                excluded_foods=data.get("excluded_foods") or []
+                recent_foods=[],
+                excluded_foods=[]
             )
 
             users.append(user)
 
-        except Exception as e:
-
-            print("Lỗi user:", doc.id, str(e))
+        except Exception:
+            continue
 
     return users
 
 
-def evaluate_users(users, title):
+# Đánh giá hệ thống trên toàn bộ người dùng
 
-    recommended_calories = []
-    recommended_protein = []
-    recommended_carb = []
-    recommended_fat = []
+def evaluate_system(users):
+
+    target_calories = []
+    target_protein = []
+    target_carbs = []
+    target_fat = []
 
     meal_calories = []
     meal_protein = []
-    meal_carb = []
+    meal_carbs = []
     meal_fat = []
 
-    tested_users = 0
+    success_count = 0
 
     for user in users:
 
         try:
 
             target = who_tdee(user)
-            
 
             menu = daily_plan(user)
 
-            total = calculate_menu_total(menu)
+            meal_total = calculate_menu_total(menu)
 
-            recommended_calories.append(target["Calories"])
-            recommended_protein.append(target["Protein"])
-            recommended_carb.append(target["carb"])
-            recommended_fat.append(target["Fat"])
+            target_calories.append(
+                target["Calories"]
+            )
 
-            meal_calories.append(total["Calories"])
-            meal_protein.append(total["Protein"])
-            meal_carb.append(total["carb"])
-            meal_fat.append(total["Fat"])
+            target_protein.append(
+                target["Protein"]
+            )
 
-            tested_users += 1
+            target_carbs.append(
+                target["carb"]
+            )
 
-        except Exception as e:
+            target_fat.append(
+                target["Fat"]
+            )
 
-            print("Lỗi:", str(e))
+            meal_calories.append(
+                meal_total["Calories"]
+            )
 
-    if tested_users == 0:
-        print("\nKhông có dữ liệu test")
-        return
+            meal_protein.append(
+                meal_total["Protein"]
+            )
 
-    mae_cal = np.mean(np.abs((np.array(recommended_calories) - np.array(meal_calories)) / np.array(recommended_calories))) * 100
-    mae_pro = np.mean(np.abs((np.array(recommended_protein) - np.array(meal_protein)) / np.array(recommended_protein))) * 100
-    mae_carb = np.mean(np.abs((np.array(recommended_carb) - np.array(meal_carb)) / np.array(recommended_carb))) * 100
-    mae_fat = np.mean(np.abs((np.array(recommended_fat) - np.array(meal_fat)) / np.array(recommended_fat))) * 100
+            meal_carbs.append(
+                meal_total["carb"]
+            )
 
-    rmse_cal = np.sqrt(mean_squared_error(recommended_calories, meal_calories)) / np.mean(recommended_calories) * 100
-    rmse_pro = np.sqrt(mean_squared_error(recommended_protein, meal_protein)) / np.mean(recommended_protein) * 100
-    rmse_carb = np.sqrt(mean_squared_error(recommended_carb, meal_carb)) / np.mean(recommended_carb) * 100
-    rmse_fat = np.sqrt(mean_squared_error(recommended_fat, meal_fat)) / np.mean(recommended_fat) * 100
+            meal_fat.append(
+                meal_total["Fat"]
+            )
 
-    r2_cal = r2_score(recommended_calories, meal_calories)
-    r2_pro = r2_score(recommended_protein, meal_protein)
-    r2_carb = r2_score(recommended_carb, meal_carb)
-    r2_fat = r2_score(recommended_fat, meal_fat)
+            success_count += 1
 
-    avg_error = (mae_cal + mae_pro + mae_carb + mae_fat) / 4
+        except Exception:
+            continue
 
-    accuracy = max(0, 100 - avg_error)
+    avg_target_cal = np.mean(
+        target_calories
+    )
+
+    avg_target_pro = np.mean(
+        target_protein
+    )
+
+    avg_target_carb = np.mean(
+        target_carbs
+    )
+
+    avg_target_fat = np.mean(
+        target_fat
+    )
+
+    avg_meal_cal = np.mean(
+        meal_calories
+    )
+
+    avg_meal_pro = np.mean(
+        meal_protein
+    )
+
+    avg_meal_carb = np.mean(
+        meal_carbs
+    )
+
+    avg_meal_fat = np.mean(
+        meal_fat
+    )
+
+    error_cal = (
+        abs(avg_target_cal - avg_meal_cal)
+        / avg_target_cal
+        * 100
+    )
+
+    error_pro = (
+        abs(avg_target_pro - avg_meal_pro)
+        / avg_target_pro
+        * 100
+    )
+
+    error_carb = (
+        abs(avg_target_carb - avg_meal_carb)
+        / avg_target_carb
+        * 100
+    )
+
+    error_fat = (
+        abs(avg_target_fat - avg_meal_fat)
+        / avg_target_fat
+        * 100
+    )
+
+    average_error = (
+        error_cal +
+        error_pro +
+        error_carb +
+        error_fat
+    ) / 4
+
+    accuracy = 100 - average_error
 
     table = PrettyTable()
 
     table.field_names = [
-        "Metric",
-        "Calories",
-        "Protein",
-        "Carbs",
-        "Fat"
+        "Nutrient",
+        "Recommended",
+        "MealTotal",
+        "Error %"
     ]
 
     table.add_row([
-        "MAE %",
-        round(mae_cal, 2),
-        round(mae_pro, 2),
-        round(mae_carb, 2),
-        round(mae_fat, 2)
+        "Calories",
+        round(avg_target_cal, 1),
+        round(avg_meal_cal, 1),
+        round(error_cal, 2)
     ])
 
     table.add_row([
-        "RMSE %",
-        round(rmse_cal, 2),
-        round(rmse_pro, 2),
-        round(rmse_carb, 2),
-        round(rmse_fat, 2)
+        "Protein",
+        round(avg_target_pro, 1),
+        round(avg_meal_pro, 1),
+        round(error_pro, 2)
     ])
 
     table.add_row([
-        "R2",
-        round(r2_cal, 3),
-        round(r2_pro, 3),
-        round(r2_carb, 3),
-        round(r2_fat, 3)
+        "Carbs",
+        round(avg_target_carb, 1),
+        round(avg_meal_carb, 1),
+        round(error_carb, 2)
     ])
 
-    print(f"\n===== {title} =====\n")
+    table.add_row([
+        "Fat",
+        round(avg_target_fat, 1),
+        round(avg_meal_fat, 1),
+        round(error_fat, 2)
+    ])
 
+    print()
     print(table)
 
-    print("\nAccuracy:", round(accuracy, 2), "%")
+    print(
+        "\nAccuracy:",
+        round(accuracy, 2),
+        "%"
+    )
 
-    print("Total Tested Users:", tested_users)
-
-
-
-# TEST FIREBASE
-def test_firebase_users():
-
-    users = load_firebase_users()
-
-    evaluate_users(
-        users,
-        "FIREBASE USERS RESULT"
+    print(
+        "Total Users:",
+        success_count
     )
 
 
-if __name__ == "__main__":
+# Hàm chạy chương trình
 
-    test_firebase_users()
+def main_test():
+
+    users = load_users_from_csv(
+        "nutrition.csv"
+    )
+
+    print(
+        "Loaded users:",
+        len(users)
+    )
+
+    evaluate_system(users)
+
+
+if __name__ == "__main__":
+    main_test()
