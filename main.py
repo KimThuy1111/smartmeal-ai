@@ -152,6 +152,8 @@ class UserRequest(BaseModel):
     activity: str
     goal: str = "maintain"
 
+    nutrition: dict
+
     # Lượng calories đã tiêu thụ trong ngày (từng bữa)
     breakfast_cal: float = 0
     lunch_cal: float = 0
@@ -583,7 +585,7 @@ def recommend_meal(target, scored_foods, recent_foods=None, excluded_foods=None,
 # Hàm gợi ý thực đơn hàng ngày (sáng, trưa, tối). Tính toán nhu cầu dinh dưỡng cho từng bữa dựa trên TDEE
 def daily_plan(user):
     # Tính nhu cầu dinh dưỡng hàng ngày
-    nutrition = who_tdee(user)
+    nutrition = user.nutrition
 
     # Lượng calories đã tiêu thụ trong ngày theo từng bữa
     eaten = {"Breakfast": user.breakfast_cal, "Lunch": user.lunch_cal, "Dinner": user.dinner_cal}
